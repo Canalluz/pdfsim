@@ -1,0 +1,7 @@
+{
+  "name": "PDF Pro Master Editor",
+  "description": "A high-end, professional PDF editing suite with AI-powered layout optimization, typography control, and graphic design features equivalent to top-tier publishing software.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
