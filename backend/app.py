@@ -225,6 +225,11 @@ stripe.api_key = os.getenv('STRIPE_SECRET_KEY')
 @app.route('/create-checkout-session', methods=['POST'])
 def create_checkout_session():
     try:
+        if not stripe.api_key:
+            print("Error: STRIPE_SECRET_KEY is not set in environment variables.")
+            return jsonify(error="Configuração do Stripe ausente no servidor."), 500
+
+        print(f"Creating checkout session with key: {stripe.api_key[:10]}...")
         checkout_session = stripe.checkout.Session.create(
             payment_method_types=['card'],
             line_items=[
@@ -234,7 +239,7 @@ def create_checkout_session():
                         'product_data': {
                             'name': 'Exportação PDF Premium',
                         },
-                        'unit_amount': 550, # R$ 5,50
+                        'unit_amount': 300, # R$ 3,00
                     },
                     'quantity': 1,
                 },
@@ -243,8 +248,10 @@ def create_checkout_session():
             success_url='http://localhost:5173/?payment_success=true',
             cancel_url='http://localhost:5173/?payment_canceled=true',
         )
-        return jsonify({'id': checkout_session.id})
+        print(f"Session created: {checkout_session.id}")
+        return jsonify({'id': checkout_session.id, 'url': checkout_session.url})
     except Exception as e:
+        print(f"Error creating checkout session: {str(e)}")
         return jsonify(error=str(e)), 403
 
 if __name__ == '__main__':

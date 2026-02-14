@@ -605,56 +605,6 @@ const App: React.FC = () => {
     });
   }, [editorState.selectedElementId, editorState.currentPageId]);
 
-  // PDF Export using pdf-lib
-  const handleExportPDF = async () => {
-    try {
-      const { exportToPDF, downloadPDF } = await import('./utils/pdfExporter');
-
-      const exportPages = editorState.pages.map(page => ({
-        lines: page.elements
-          .filter(el => el.type === 'text')
-          .map(el => ({
-            text: el.content,
-            x: el.x,
-            y: el.y,
-            fontSize: el.style.fontSize || 12,
-            fontWeight: el.style.fontWeight,
-            color: el.style.color
-          })),
-        shapes: page.elements
-          .filter(el => el.type === 'shape')
-          .map(el => ({
-            x: el.x,
-            y: el.y,
-            width: el.width,
-            height: el.height,
-            backgroundColor: el.style.backgroundColor,
-            opacity: el.style.opacity
-          })),
-        images: page.elements
-          .filter(el => el.type === 'image')
-          .map(el => ({
-            x: el.x,
-            y: el.y,
-            width: el.width,
-            height: el.height,
-            src: el.content,
-            opacity: el.style.opacity,
-            rotation: el.rotation
-          })),
-        backgroundImage: page.backgroundImage,
-        width: 595,
-        height: 842,
-        drawingData: page.drawingData
-      }));
-
-      const pdfBytes = await exportToPDF(exportPages);
-      downloadPDF(pdfBytes, 'documento-editado.pdf');
-    } catch (error) {
-      console.error('Export failed:', error);
-      alert('Erro ao exportar PDF.');
-    }
-  };
 
   // Stripe Payment Integration
   const [stripePromise] = useState(() => loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY));
@@ -671,20 +621,23 @@ const App: React.FC = () => {
       const response = await fetch('http://localhost:5000/create-checkout-session', {
         method: 'POST',
       });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'Erro interno no servidor de pagamento' }));
+        throw new Error(errorData.error || `Erro HTTP: ${response.status}`);
+      }
+
       const session = await response.json();
 
-      // 3. Redirect to Stripe
-      const stripe = await stripePromise;
-      const result = await stripe?.redirectToCheckout({
-        sessionId: session.id,
-      });
-
-      if (result?.error) {
-        alert(result.error.message);
+      // 3. Redirect to Stripe (New Way: Standard Redirect)
+      if (session.url) {
+        window.location.href = session.url;
+      } else {
+        throw new Error('URL de checkout não retornada pelo Stripe.');
       }
     } catch (error) {
-      console.error('Error creating checkout session:', error);
-      alert('Erro ao iniciar pagamento.');
+      console.error('Detailed checkout error:', error);
+      alert(error instanceof Error ? error.message : 'Erro crítico ao iniciar pagamento');
     }
   };
 
