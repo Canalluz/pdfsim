@@ -618,7 +618,8 @@ const App: React.FC = () => {
 
     // 2. Create Checkout Session
     try {
-      const response = await fetch('http://localhost:5000/create-checkout-session', {
+      const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+      const response = await fetch(`${apiBase}/create-checkout-session`, {
         method: 'POST',
       });
 

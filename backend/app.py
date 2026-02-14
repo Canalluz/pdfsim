@@ -245,8 +245,8 @@ def create_checkout_session():
                 },
             ],
             mode='payment',
-            success_url='http://localhost:5173/?payment_success=true',
-            cancel_url='http://localhost:5173/?payment_canceled=true',
+            success_url=f"{os.getenv('FRONTEND_URL', 'http://localhost:5173')}/?payment_success=true",
+            cancel_url=f"{os.getenv('FRONTEND_URL', 'http://localhost:5173')}/?payment_canceled=true",
         )
         print(f"Session created: {checkout_session.id}")
         return jsonify({'id': checkout_session.id, 'url': checkout_session.url})
