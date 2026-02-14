@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: pdfsim-api
+    env: python
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: FRONTEND_URL
+        value: https://pdfsim.com
