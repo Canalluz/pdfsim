@@ -19,6 +19,10 @@ if not os.path.exists(WORD_FOLDER):
 # In production, use Redis or database
 editors = {}
 
+@app.route('/', methods=['GET'])
+def health_check():
+    return jsonify({"status": "healthy", "service": "pdfsim-api"}), 200
+
 @app.route('/upload', methods=['POST'])
 def upload_pdf():
     if 'file' not in request.files:
