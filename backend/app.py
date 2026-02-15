@@ -243,7 +243,7 @@ def create_checkout_session():
                         'product_data': {
                             'name': 'Exportação PDF Premium',
                         },
-                        'unit_amount': 300, # R$ 3,00
+                        'unit_amount': 1000, # R$ 10,00
                     },
                     'quantity': 1,
                 },
