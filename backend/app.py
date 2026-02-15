@@ -234,29 +234,57 @@ def create_checkout_session():
             return jsonify(error="Configuração do Stripe ausente no servidor."), 500
 
         print(f"Creating checkout session with key: {stripe.api_key[:10]}...")
-        checkout_session = stripe.checkout.Session.create(
-            automatic_payment_methods={'enabled': True},
-            line_items=[
-                {
-                    'price_data': {
-                        'currency': 'brl',
-                        'product_data': {
-                            'name': 'Exportação PDF Premium',
+        
+        try:
+            # Try automatic payment methods first (Preferred)
+            checkout_session = stripe.checkout.Session.create(
+                automatic_payment_methods={'enabled': True},
+                line_items=[
+                    {
+                        'price_data': {
+                            'currency': 'brl',
+                            'product_data': {
+                                'name': 'Exportação PDF Premium',
+                            },
+                            'unit_amount': 1000, # R$ 10,00
                         },
-                        'unit_amount': 1000, # R$ 10,00
+                        'quantity': 1,
                     },
-                    'quantity': 1,
+                ],
+                mode='payment',
+                billing_address_collection='required',
+                shipping_address_collection={
+                    'allowed_countries': ['BR'],
                 },
-            ],
-            mode='payment',
-            billing_address_collection='required',
-            shipping_address_collection={
-                'allowed_countries': ['BR'],
-            },
-            locale='pt-BR',
-            success_url=f"{os.getenv('FRONTEND_URL', 'http://localhost:5173')}/?payment_success=true",
-            cancel_url=f"{os.getenv('FRONTEND_URL', 'http://localhost:5173')}/?payment_canceled=true",
-        )
+                locale='pt-BR',
+                success_url=f"{os.getenv('FRONTEND_URL', 'http://localhost:5173')}/?payment_success=true",
+                cancel_url=f"{os.getenv('FRONTEND_URL', 'http://localhost:5173')}/?payment_canceled=true",
+            )
+        except stripe.error.InvalidRequestError as e:
+            error_msg = str(e)
+            print(f"Automatic methods failed: {error_msg}. Falling back to manual configuration.")
+            
+            # Fallback for older API versions or restricted accounts
+            # Note: PIX might fail if not enabled in dashboard, so we default to card for safety
+            checkout_session = stripe.checkout.Session.create(
+                payment_method_types=['card'],
+                line_items=[
+                    {
+                        'price_data': {
+                            'currency': 'brl',
+                            'product_data': {
+                                'name': 'Exportação PDF Premium',
+                            },
+                            'unit_amount': 1000, # R$ 10,00
+                        },
+                        'quantity': 1,
+                    },
+                ],
+                mode='payment',
+                success_url=f"{os.getenv('FRONTEND_URL', 'http://localhost:5173')}/?payment_success=true",
+                cancel_url=f"{os.getenv('FRONTEND_URL', 'http://localhost:5173')}/?payment_canceled=true",
+            )
+
         print(f"Session created: {checkout_session.id}")
         return jsonify({'id': checkout_session.id, 'url': checkout_session.url})
     except Exception as e:
