@@ -235,7 +235,7 @@ def create_checkout_session():
 
         print(f"Creating checkout session with key: {stripe.api_key[:10]}...")
         checkout_session = stripe.checkout.Session.create(
-            payment_method_types=['card', 'pix'],
+            automatic_payment_methods={'enabled': True},
             line_items=[
                 {
                     'price_data': {
