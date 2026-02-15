@@ -1,7 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { X, ChevronRight, ChevronLeft, Sparkles, User, Briefcase, GraduationCap, Award, CheckCircle2, Camera, Upload, Trash2 } from 'lucide-react';
+import { X, ChevronRight, ChevronLeft, Sparkles, User, Briefcase, GraduationCap, Award, CheckCircle2, Camera, Upload, Trash2, Layout } from 'lucide-react';
 import { EditorElement } from '../types';
 import { Language, translations } from '../utils/i18n';
+import { getTemplates, Template } from '../data/templates';
+import TemplatePreview from './TemplatePreview';
 
 interface ResumeData {
     fullName: string;
@@ -29,12 +31,13 @@ interface ResumeData {
 
 interface ResumeWizardProps {
     language: Language;
-    onComplete: (data: ResumeData) => void;
+    onComplete: (data: ResumeData, template: Template) => void;
     onClose: () => void;
 }
 
 const ResumeWizard: React.FC<ResumeWizardProps> = ({ language, onComplete, onClose }) => {
-    const [step, setStep] = useState(1);
+    const [step, setStep] = useState(0); // Start at 0 for template selection
+    const [selectedTemplate, setSelectedTemplate] = useState<Template | null>(null);
     const [data, setData] = useState<ResumeData>({
         fullName: '',
         email: '',
@@ -49,6 +52,7 @@ const ResumeWizard: React.FC<ResumeWizardProps> = ({ language, onComplete, onClo
     });
 
     const t = translations[language];
+    const templates = getTemplates(language);
 
     // Camera State
     const [showCamera, setShowCamera] = useState(false);
@@ -154,6 +158,7 @@ const ResumeWizard: React.FC<ResumeWizardProps> = ({ language, onComplete, onClo
     };
 
     const steps = [
+        { id: 0, title: t.chooseTemplate, icon: <Layout size={20} /> },
         { id: 1, title: t.stepPersonal, icon: <User size={20} /> },
         { id: 2, title: t.stepExp, icon: <Briefcase size={20} /> },
         { id: 3, title: t.stepEduSkills, icon: <GraduationCap size={20} /> },
@@ -200,6 +205,44 @@ const ResumeWizard: React.FC<ResumeWizardProps> = ({ language, onComplete, onClo
 
                 {/* Content */}
                 <div className="flex-1 overflow-auto p-8 bg-gray-50">
+                    {step === 0 && (
+                        <div className="space-y-4 max-w-4xl mx-auto animate-in slide-in-from-right-8 fade-in duration-300">
+                            <div className="text-center mb-6">
+                                <h3 className="text-2xl font-bold text-gray-800 mb-2">{t.chooseTemplate}</h3>
+                                <p className="text-gray-600">{language === 'pt' ? 'Selecione um modelo para começar seu currículo' : language === 'es' ? 'Seleccione una plantilla para comenzar su currículum' : 'Select a template to start your resume'}</p>
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                                {templates.map(template => (
+                                    <div
+                                        key={template.id}
+                                        onClick={() => setSelectedTemplate(template)}
+                                        className={`group relative bg-white rounded-lg shadow-sm hover:shadow-md border-2 transition-all cursor-pointer overflow-hidden aspect-[1/1.41] ${selectedTemplate?.id === template.id ? 'border-indigo-600 ring-2 ring-indigo-100' : 'border-transparent hover:border-indigo-200'
+                                            }`}
+                                    >
+                                        {/* Thumbnail Preview */}
+                                        <div className="w-full h-full bg-gray-100 flex items-center justify-center relative">
+                                            <div className="scale-[0.25] origin-top-left absolute top-0 left-0 w-[595px] h-[842px]">
+                                                <TemplatePreview template={template} scale={1} />
+                                            </div>
+
+                                            {/* Hover Overlay */}
+                                            <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex flex-col justify-end p-4 z-20">
+                                                <span className="text-white font-bold">{template.name}</span>
+                                                <span className="text-white/80 text-xs capitalize">{template.category}</span>
+                                            </div>
+
+                                            {/* Selected Indicator */}
+                                            {selectedTemplate?.id === template.id && (
+                                                <div className="absolute top-2 right-2 bg-indigo-600 text-white p-1 rounded-full shadow-lg">
+                                                    <CheckCircle2 size={16} />
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
                     {step === 1 && (
                         <div className="space-y-4 max-w-lg mx-auto animate-in slide-in-from-right-8 fade-in duration-300">
                             {/* Photo Section */}
@@ -290,11 +333,7 @@ const ResumeWizard: React.FC<ResumeWizardProps> = ({ language, onComplete, onClo
                                         value={data.summary}
                                         onChange={e => setData({ ...data, summary: e.target.value })}
                                         className="w-full p-2 border rounded focus:ring-2 focus:ring-indigo-500 outline-none min-h-[100px]"
-                                        placeholder={t.summaryPlaceholder}
                                     />
-                                    <button className="text-xs text-indigo-600 font-bold mt-1 hover:underline flex items-center gap-1">
-                                        <Sparkles size={12} /> {t.suggestAI}
-                                    </button>
                                 </div>
                             </div>
                         </div>
@@ -453,7 +492,7 @@ const ResumeWizard: React.FC<ResumeWizardProps> = ({ language, onComplete, onClo
 
                 {/* Footer Actions */}
                 <div className="p-4 border-t bg-white flex justify-between">
-                    {step > 1 ? (
+                    {step > 0 ? (
                         <button onClick={handleBack} className="px-6 py-2 text-gray-600 font-medium hover:bg-gray-100 rounded-lg flex items-center gap-2">
                             <ChevronLeft size={16} /> {t.back}
                         </button>
@@ -462,12 +501,16 @@ const ResumeWizard: React.FC<ResumeWizardProps> = ({ language, onComplete, onClo
                     )}
 
                     {step < 4 ? (
-                        <button onClick={handleNext} className="px-6 py-2 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 flex items-center gap-2">
+                        <button
+                            onClick={handleNext}
+                            disabled={step === 0 && !selectedTemplate}
+                            className="px-6 py-2 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
                             {t.next} <ChevronRight size={16} />
                         </button>
                     ) : (
                         <button
-                            onClick={() => onComplete(data)}
+                            onClick={() => selectedTemplate && onComplete(data, selectedTemplate)}
                             className="px-8 py-2 bg-green-600 text-white font-bold rounded-lg hover:bg-green-700 shadow-lg shadow-green-200 flex items-center gap-2"
                         >
                             <Sparkles size={16} />

@@ -638,7 +638,7 @@ const App: React.FC = () => {
       }
     } catch (error) {
       console.error('Detailed checkout error:', error);
-      alert(error instanceof Error ? error.message : 'Erro crítico ao iniciar pagamento');
+      alert(error instanceof Error ? `Erro ao conectar com o servidor de pagamento: ${error.message}` : 'Erro crítico ao iniciar pagamento');
     }
   };
 
@@ -807,145 +807,117 @@ const App: React.FC = () => {
 
 
 
-  const handleWizardComplete = (data: any) => {
-    const targetTemplateId = 'champion-classic-elegant';
-    const PAGE_HEIGHT = 842;
-    const MARGIN_TOP = 50;
-    const MARGIN_BOTTOM = 50;
+  const handleWizardComplete = (data: any, template: any) => {
+    // Clone template elements and populate with user data
+    const populatedElements = template.elements.map((element: EditorElement) => {
+      const newElement = { ...element };
 
-    const pages: PDFPage[] = [];
-    let currentElements: EditorElement[] = [];
-    let pageNumber = 1;
+      // Populate text elements based on their ID
+      if (element.type === 'text') {
+        const id = element.id.toLowerCase();
 
-    // --- Page 1 Setup ---
-    // Photo
-    if (data.photo) {
-      currentElements.push({
-        id: 'smart-photo',
-        type: 'smart-element',
-        x: 450,
-        y: 40,
-        width: 120,
-        height: 150,
-        content: 'ProfessionalPhoto',
-        componentData: {
-          templateId: targetTemplateId,
-          userImage: data.photo,
-          photoConfig: {
-            recommendation: 'Ótima iluminação!'
-          }
-        },
-        style: {
-          opacity: 1,
-          borderRadius: 0,
-          background: 'transparent'
+        // Name fields
+        if (id.includes('name') && !id.includes('company') && !id.includes('fullname')) {
+          newElement.content = data.fullName || element.content;
         }
-      });
-    }
-
-    // Header Info (Keep as Text for flexibility)
-    currentElements.push({
-      id: 'name', type: 'text', x: 40, y: 50, width: 380, height: 36,
-      content: data.fullName || 'SEU NOME',
-      style: { fontSize: 28, fontWeight: 'bold', fontFamily: 'Montserrat', color: '#2c3e50', textAlign: 'left' }
-    });
-
-    currentElements.push({
-      id: 'contact', type: 'text', x: 40, y: 90, width: 380, height: 14,
-      content: `${data.email} | ${data.phone}\n${data.location}`,
-      style: { fontSize: 9, fontWeight: 'normal', fontFamily: 'Roboto', color: '#7f8c8d', textAlign: 'left' }
-    });
-
-    let yCursor = 160;
-
-    // Helper to add element with flow logic
-    const addSection = (id: string, height: number, componentData: any) => {
-      if (yCursor + height > PAGE_HEIGHT - MARGIN_BOTTOM) {
-        // Push current page
-        pages.push({
-          id: `page-${pageNumber}-${Date.now()}`,
-          pageNumber: pageNumber,
-          elements: [...currentElements] // Copy elements
-        });
-        // Reset for new page
-        pageNumber++;
-        currentElements = [];
-        yCursor = MARGIN_TOP;
+        // Role/Title fields
+        else if (id.includes('role') || id.includes('title')) {
+          newElement.content = element.content; // Keep template role for now
+        }
+        // Contact fields
+        else if (id.includes('contact') && !id.includes('header')) {
+          const contactParts = [];
+          if (data.email) contactParts.push(`📧 ${data.email}`);
+          if (data.phone) contactParts.push(`📱 ${data.phone}`);
+          if (data.location) contactParts.push(`📍 ${data.location}`);
+          if (data.website) contactParts.push(`🔗 ${data.website}`);
+          if (contactParts.length > 0) {
+            newElement.content = contactParts.join('  |  ');
+          }
+        }
+        // Summary fields
+        else if (id.includes('summary') && !id.includes('header') && !id.includes('-h')) {
+          if (data.summary) {
+            newElement.content = data.summary;
+          }
+        }
       }
 
-      currentElements.push({
-        id: id,
-        type: 'smart-element',
-        x: 40,
-        y: yCursor,
-        width: 515,
-        height: height,
-        content: 'ResumeSection',
-        componentData: componentData,
-        style: { opacity: 1 }
-      });
+      // Populate smart elements
+      else if (element.type === 'smart-element') {
+        const content = element.content?.toLowerCase() || '';
 
-      yCursor += height + 20; // Gap
-    };
-
-    // --- Sections ---
-
-    // Summary
-    if (data.summary) {
-      addSection('smart-section-summary', 80, {
-        templateId: targetTemplateId,
-        section: {
-          type: 'text',
-          title: 'RESUMO PROFISSIONAL',
-          content: data.summary
+        // Professional Photo
+        if (content.includes('photo')) {
+          newElement.componentData = {
+            ...element.componentData,
+            userImage: data.photo || '',
+          };
         }
-      });
-    }
 
-    // Experience Section (Smart Timeline)
-    if (data.experience.length > 0) {
-      const height = data.experience.length * 80 + 40;
-      addSection('smart-section-exp', height, {
-        templateId: targetTemplateId,
-        section: {
-          type: 'timeline_experience',
-          title: 'EXPERIÊNCIA PROFISSIONAL',
-          items: data.experience
+        // Resume Sections
+        else if (content.includes('resumesection') && element.componentData?.section) {
+          const section = element.componentData.section;
+
+          // Experience section
+          if (section.type === 'timeline_experience' || section.type === 'star_experience') {
+            if (data.experience.length > 0) {
+              newElement.componentData = {
+                ...element.componentData,
+                section: {
+                  ...section,
+                  items: data.experience.map((exp: any) => ({
+                    position: exp.title,
+                    company: exp.company,
+                    period: exp.period,
+                    description: exp.description,
+                  }))
+                }
+              };
+            }
+          }
+
+          // Education section
+          else if (section.type === 'education_list') {
+            if (data.education.length > 0) {
+              newElement.componentData = {
+                ...element.componentData,
+                section: {
+                  ...section,
+                  items: data.education.map((edu: any) => ({
+                    school: edu.school,
+                    degree: edu.degree,
+                    year: edu.year,
+                  }))
+                }
+              };
+            }
+          }
+
+          // Skills section
+          else if (section.type === 'skills_grid' || section.type === 'simple_list') {
+            if (data.skills.length > 0) {
+              newElement.componentData = {
+                ...element.componentData,
+                section: {
+                  ...section,
+                  content: data.skills.join('\n• ')
+                }
+              };
+            }
+          }
         }
-      });
-    }
+      }
 
-    // Education Section (Smart List)
-    if (data.education.length > 0) {
-      const height = data.education.length * 60 + 40;
-      addSection('smart-section-edu', height, {
-        templateId: targetTemplateId,
-        section: {
-          type: 'education_list',
-          title: 'FORMAÇÃO ACADÊMICA',
-          items: data.education
-        }
-      });
-    }
-
-    // Skills Section (Smart Grid)
-    if (data.skills.length > 0) {
-      addSection('smart-section-skills', 100, {
-        templateId: targetTemplateId,
-        section: {
-          type: 'skills_grid',
-          title: 'COMPETÊNCIAS',
-          content: data.skills
-        }
-      });
-    }
-
-    // Push final page
-    pages.push({
-      id: `page-${pageNumber}-${Date.now()}`,
-      pageNumber: pageNumber,
-      elements: currentElements
+      return newElement;
     });
+
+    // Create a single page with all populated elements
+    const pages: PDFPage[] = [{
+      id: `page-1-${Date.now()}`,
+      pageNumber: 1,
+      elements: populatedElements
+    }];
 
     setEditorState(prev => ({
       ...prev,
@@ -1009,7 +981,7 @@ const App: React.FC = () => {
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-gray-100">
       {/* Top Header */}
-      <header className="flex h-14 items-center justify-between border-b bg-white px-4 shadow-sm z-50">
+      <header className="flex h-14 items-center justify-between border-b bg-white px-4 shadow-sm z-50 relative">
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-white shadow-sm overflow-hidden">
             <img src="/logo.png" alt="PDF Sim Editor Logo" className="h-full w-full object-cover" />
@@ -1046,20 +1018,11 @@ const App: React.FC = () => {
               </button>
             </div>
           </div>
-
-
-          <button
-            onClick={() => setIsWizardOpen(true)}
-            className="flex items-center gap-2 rounded-full px-4 py-1.5 text-xs font-bold text-white bg-gradient-to-r from-purple-600 to-indigo-600 hover:shadow-lg transition-all ml-4"
-          >
-            <Zap size={14} className="fill-yellow-300 text-yellow-300" />
-            {translations[language].createWithAI}
-          </button>
-          <p className="text-xl font-semibold text-gray-700 italic animate-fade-in ml-6 whitespace-nowrap hidden xl:block">
-            "Currículo profissional, visão de recrutador e edição de PDF"
-          </p>
         </div>
 
+        <p className="absolute left-1/2 -translate-x-1/2 text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-600 italic animate-fade-in hidden xl:block whitespace-nowrap drop-shadow-sm">
+          "Currículo Inteligente, visão de recrutador e edição de PDF"
+        </p>
 
         <div className="flex items-center gap-2">
 
