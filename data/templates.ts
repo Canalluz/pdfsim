@@ -580,24 +580,24 @@ export const getTemplates = (lang: Language = 'pt'): Template[] => {
                 // Clean header with professional color
                 { id: 'header-bg', type: 'shape', x: 0, y: 0, width: 595, height: 100, content: '', isBackground: true, locked: true, style: { backgroundColor: '#1e40af', borderRadius: 0, opacity: 1 } },
 
-                // Professional Photo - Top right corner
+                // Professional Photo - Top right corner (Standard format)
                 {
                     id: 'photo-section',
                     type: 'smart-element',
-                    x: 450, y: 10,
-                    width: 80, height: 80,
+                    x: 450, y: 15,
+                    width: 110, height: 110,
                     content: 'ProfessionalPhoto',
                     componentData: {
                         templateId: 'champion-ats-professional',
                         userImage: '',
                         photoConfig: { size: 'cover' }
                     },
-                    style: { opacity: 1, background: '#ffffff', borderRadius: 0 }
+                    style: { opacity: 1, background: '#f8fafc', borderRadius: 0 }
                 },
 
                 // Name and Title - Clear hierarchy for ATS (User must fill manually)
                 createText('name', lang === 'pt' ? '[SEU NOME COMPLETO]' : lang === 'es' ? '[SU NOMBRE COMPLETO]' : '[YOUR FULL NAME]', 40, 30, 26, 'bold', '#ffffff', 400, 'left', false),
-                createText('role', lang === 'pt' ? '[CARGO / ESPECIALIDADE]' : lang === 'es' ? '[CARGO / ESPECIALIDAD]' : '[JOB TITLE / SPECIALTY]', 40, 65, 12, 'bold', '#93c5fd', 400, 'left', false),
+                createText('role', lang === 'pt' ? '[CARGO / ESPECIALIDADE]' : lang === 'es' ? '[CARGO / ESPECIALIDAD]' : '[JOB TITLE / SPECIALTY]', 40, 65, 12, 'bold', '#fde047', 400, 'left', false),
 
                 // Contact bar - ATS-friendly format
                 { id: 'contact-bg', type: 'shape', x: 0, y: 100, width: 595, height: 35, content: '', isBackground: true, locked: true, style: { backgroundColor: '#f1f5f9', borderRadius: 0, opacity: 1 } },
