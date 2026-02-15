@@ -235,7 +235,7 @@ def create_checkout_session():
 
         print(f"Creating checkout session with key: {stripe.api_key[:10]}...")
         checkout_session = stripe.checkout.Session.create(
-            payment_method_types=['card'],
+            payment_method_types=['card', 'pix'],
             line_items=[
                 {
                     'price_data': {
@@ -249,6 +249,11 @@ def create_checkout_session():
                 },
             ],
             mode='payment',
+            billing_address_collection='required',
+            shipping_address_collection={
+                'allowed_countries': ['BR'],
+            },
+            locale='pt-BR',
             success_url=f"{os.getenv('FRONTEND_URL', 'http://localhost:5173')}/?payment_success=true",
             cancel_url=f"{os.getenv('FRONTEND_URL', 'http://localhost:5173')}/?payment_canceled=true",
         )
