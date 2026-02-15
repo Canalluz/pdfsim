@@ -281,6 +281,11 @@ def create_checkout_session():
                     },
                 ],
                 mode='payment',
+                billing_address_collection='required',
+                shipping_address_collection={
+                    'allowed_countries': ['BR'],
+                },
+                locale='pt-BR',
                 success_url=f"{os.getenv('FRONTEND_URL', 'http://localhost:5173')}/?payment_success=true",
                 cancel_url=f"{os.getenv('FRONTEND_URL', 'http://localhost:5173')}/?payment_canceled=true",
             )
