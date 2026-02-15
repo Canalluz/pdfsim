@@ -638,27 +638,27 @@ export const getTemplates = (lang: Language = 'pt'): Template[] => {
                     40, 465, 10, 'normal', '#334155', 515),
 
                 // Job 2
-                createText('job2-title', lang === 'pt' ? 'COORDENADOR DE PROJETOS' : lang === 'es' ? 'COORDINADOR DE PROYECTOS' : 'PROJECT COORDINATOR', 40, 575, 11, 'bold', '#1e293b', 350),
-                createText('job2-period', '2016 - 2019', 465, 575, 10, 'bold', '#64748b', 90, 'right'),
-                createText('job2-company', lang === 'pt' ? 'Consultoria Estratégica S.A. | São Paulo, SP' : lang === 'es' ? 'Consultoría Estratégica S.A. | São Paulo, SP' : 'Strategic Consulting Inc. | São Paulo, SP', 40, 590, 10, 'italic', '#64748b', 515),
+                createText('job2-title', lang === 'pt' ? 'COORDENADOR DE PROJETOS' : lang === 'es' ? 'COORDINADOR DE PROYECTOS' : 'PROJECT COORDINATOR', 40, 590, 11, 'bold', '#1e293b', 350),
+                createText('job2-period', '2016 - 2019', 465, 590, 10, 'bold', '#64748b', 90, 'right'),
+                createText('job2-company', lang === 'pt' ? 'Consultoria Estratégica S.A. | São Paulo, SP' : lang === 'es' ? 'Consultoría Estratégica S.A. | São Paulo, SP' : 'Strategic Consulting Inc. | São Paulo, SP', 40, 605, 10, 'italic', '#64748b', 515),
                 createText('job2-achievements', lang === 'pt'
                     ? '• Coordenou 8 projetos simultâneos de transformação digital para clientes Fortune 500\n• Reduziu desvios de cronograma em 45% através de implementação de controles rigorosos\n• Certificou-se PMP e Six Sigma Green Belt, aplicando conhecimentos em otimização de processos\n• Treinou e mentorou 6 analistas júnior, com 100% de promoção em 18 meses'
                     : lang === 'es'
                         ? '• Coordinó 8 proyectos simultáneos de transformación digital para clientes Fortune 500\n• Redujo desvíos de cronograma en 45% a través de implementación de controles rigurosos\n• Se certificó PMP y Six Sigma Green Belt, aplicando conocimientos en optimización de procesos\n• Entrenó y mentoró 6 analistas junior, con 100% de promoción en 18 meses'
                         : '• Coordinated 8 simultaneous digital transformation projects for Fortune 500 clients\n• Reduced schedule deviations by 45% through implementation of rigorous controls\n• Obtained PMP and Six Sigma Green Belt certifications, applying knowledge in process optimization\n• Trained and mentored 6 junior analysts, with 100% promotion rate in 18 months',
-                    40, 610, 10, 'normal', '#334155', 515),
+                    40, 625, 10, 'normal', '#334155', 515),
 
                 // Education
-                createText('edu-h', lang === 'pt' ? 'FORMAÇÃO ACADÊMICA' : lang === 'es' ? 'FORMACIÓN ACADÉMICA' : 'EDUCATION', 40, 695, 13, 'bold', '#1e40af', 515),
-                { id: 'edu-line', type: 'shape', x: 40, y: 713, width: 80, height: 3, content: '', style: { backgroundColor: '#3b82f6', borderRadius: 0 } },
+                createText('edu-h', lang === 'pt' ? 'FORMAÇÃO ACADÊMICA' : lang === 'es' ? 'FORMACIÓN ACADÉMICA' : 'EDUCATION', 40, 710, 13, 'bold', '#1e40af', 515),
+                { id: 'edu-line', type: 'shape', x: 40, y: 728, width: 80, height: 3, content: '', style: { backgroundColor: '#3b82f6', borderRadius: 0 } },
 
-                createText('edu1-degree', lang === 'pt' ? 'MBA em Gestão de Projetos' : lang === 'es' ? 'MBA en Gestión de Proyectos' : 'MBA in Project Management', 40, 730, 11, 'bold', '#1e293b', 350),
-                createText('edu1-year', '2018', 465, 730, 10, 'bold', '#64748b', 90, 'right'),
-                createText('edu1-school', lang === 'pt' ? 'Fundação Getulio Vargas (FGV) | São Paulo, SP' : lang === 'es' ? 'Fundación Getulio Vargas (FGV) | São Paulo, SP' : 'Getulio Vargas Foundation (FGV) | São Paulo, SP', 40, 745, 10, 'normal', '#64748b', 515),
+                createText('edu1-degree', lang === 'pt' ? 'MBA em Gestão de Projetos' : lang === 'es' ? 'MBA en Gestión de Proyectos' : 'MBA in Project Management', 40, 745, 11, 'bold', '#1e293b', 350),
+                createText('edu1-year', '2018', 465, 745, 10, 'bold', '#64748b', 90, 'right'),
+                createText('edu1-school', lang === 'pt' ? 'Fundação Getulio Vargas (FGV) | São Paulo, SP' : lang === 'es' ? 'Fundación Getulio Vargas (FGV) | São Paulo, SP' : 'Getulio Vargas Foundation (FGV) | São Paulo, SP', 40, 760, 10, 'normal', '#64748b', 515),
 
-                createText('edu2-degree', lang === 'pt' ? 'Bacharelado em Administração de Empresas' : lang === 'es' ? 'Licenciatura en Administración de Empresas' : 'Bachelor in Business Administration', 40, 765, 11, 'bold', '#1e293b', 350),
-                createText('edu2-year', '2015', 465, 765, 10, 'bold', '#64748b', 90, 'right'),
-                createText('edu2-school', lang === 'pt' ? 'Universidade de São Paulo (USP) | São Paulo, SP' : lang === 'es' ? 'Universidad de São Paulo (USP) | São Paulo, SP' : 'University of São Paulo (USP) | São Paulo, SP', 40, 780, 10, 'normal', '#64748b', 515),
+                createText('edu2-degree', lang === 'pt' ? 'Bacharelado em Administração de Empresas' : lang === 'es' ? 'Licenciatura en Administración de Empresas' : 'Bachelor in Business Administration', 40, 780, 11, 'bold', '#1e293b', 350),
+                createText('edu2-year', '2015', 465, 780, 10, 'bold', '#64748b', 90, 'right'),
+                createText('edu2-school', lang === 'pt' ? 'Universidade de São Paulo (USP) | São Paulo, SP' : lang === 'es' ? 'Universidad de São Paulo (USP) | São Paulo, SP' : 'University of São Paulo (USP) | São Paulo, SP', 40, 795, 10, 'normal', '#64748b', 515),
 
                 // Certifications - Important for ATS
                 createText('cert-h', lang === 'pt' ? 'CERTIFICAÇÕES PROFISSIONAIS' : lang === 'es' ? 'CERTIFICACIONES PROFESIONALES' : 'PROFESSIONAL CERTIFICATIONS', 40, 810, 13, 'bold', '#1e40af', 250),
