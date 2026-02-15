@@ -570,6 +570,115 @@ export const getTemplates = (lang: Language = 'pt'): Template[] => {
                     style: { opacity: 1 }
                 },
             ].map(el => ({ ...el, style: { ...el.style, fontFamily: (el.style as any).fontFamily || '"Montserrat", "Arial", sans-serif', lineHeight: 1.5 } } as EditorElement))
+        },
+        {
+            id: 'champion-ats-professional',
+            name: lang === 'pt' ? 'O Profissional ATS (Alta Aprovação)' : lang === 'es' ? 'El Profesional ATS (Alta Aprobación)' : 'The ATS Professional (High Approval)',
+            category: 'champion',
+            thumbnail: '',
+            elements: [
+                // Clean header with professional color
+                { id: 'header-bg', type: 'shape', x: 0, y: 0, width: 595, height: 100, content: '', isBackground: true, locked: true, style: { backgroundColor: '#1e40af', borderRadius: 0, opacity: 1 } },
+
+                // Name and Title - Clear hierarchy for ATS
+                createText('name', t.exampleName.toUpperCase(), 40, 30, 26, 'bold', '#ffffff', 515, 'center', true),
+                createText('role', t.exampleRole.toUpperCase(), 40, 65, 12, 'bold', '#e0e7ff', 515, 'center', true),
+
+                // Contact bar - ATS-friendly format
+                { id: 'contact-bg', type: 'shape', x: 0, y: 100, width: 595, height: 35, content: '', isBackground: true, locked: true, style: { backgroundColor: '#f1f5f9', borderRadius: 0, opacity: 1 } },
+                createText('contact', `📧 ${t.email.toLowerCase()}@profissional.com  |  📱 (11) 98765-4321  |  📍 São Paulo, SP  |  💼 linkedin.com/in/profissional`, 40, 110, 9, 'normal', '#1e293b', 515, 'center'),
+
+                // Professional Summary - ATS keyword rich
+                createText('summary-h', lang === 'pt' ? 'RESUMO PROFISSIONAL' : lang === 'es' ? 'RESUMEN PROFESIONAL' : 'PROFESSIONAL SUMMARY', 40, 155, 13, 'bold', '#1e40af', 515),
+                { id: 'summary-line', type: 'shape', x: 40, y: 173, width: 80, height: 3, content: '', style: { backgroundColor: '#3b82f6', borderRadius: 0 } },
+                createText('summary', lang === 'pt'
+                    ? 'Profissional com 8+ anos de experiência em gestão de projetos e liderança de equipes multidisciplinares. Histórico comprovado de entrega de resultados mensuráveis, incluindo aumento de 35% em eficiência operacional e redução de 28% em custos. Especialista em metodologias ágeis, análise de dados e otimização de processos. Certificado PMP e Six Sigma Black Belt.'
+                    : lang === 'es'
+                        ? 'Profesional con 8+ años de experiencia en gestión de proyectos y liderazgo de equipos multidisciplinarios. Historial comprobado de entrega de resultados mensurables, incluyendo aumento del 35% en eficiencia operacional y reducción del 28% en costos. Especialista en metodologías ágiles, análisis de datos y optimización de procesos. Certificado PMP y Six Sigma Black Belt.'
+                        : 'Professional with 8+ years of experience in project management and leading multidisciplinary teams. Proven track record of delivering measurable results, including 35% increase in operational efficiency and 28% cost reduction. Expert in agile methodologies, data analysis, and process optimization. PMP and Six Sigma Black Belt certified.',
+                    40, 185, 10, 'normal', '#334155', 515),
+
+                // Core Competencies - Keyword section for ATS
+                createText('competencies-h', lang === 'pt' ? 'COMPETÊNCIAS PRINCIPAIS' : lang === 'es' ? 'COMPETENCIAS PRINCIPALES' : 'CORE COMPETENCIES', 40, 255, 13, 'bold', '#1e40af', 515),
+                { id: 'comp-line', type: 'shape', x: 40, y: 273, width: 80, height: 3, content: '', style: { backgroundColor: '#3b82f6', borderRadius: 0 } },
+
+                // Three-column competency layout
+                createText('comp-col1', lang === 'pt'
+                    ? '• Gestão de Projetos\n• Liderança de Equipes\n• Planejamento Estratégico\n• Análise de KPIs\n• Gestão de Stakeholders'
+                    : lang === 'es'
+                        ? '• Gestión de Proyectos\n• Liderazgo de Equipos\n• Planificación Estratégica\n• Análisis de KPIs\n• Gestión de Stakeholders'
+                        : '• Project Management\n• Team Leadership\n• Strategic Planning\n• KPI Analysis\n• Stakeholder Management',
+                    40, 285, 10, 'normal', '#334155', 160),
+                createText('comp-col2', lang === 'pt'
+                    ? '• Metodologias Ágeis (Scrum)\n• Gestão de Orçamento\n• Melhoria Contínua\n• Gestão de Riscos\n• Negociação'
+                    : lang === 'es'
+                        ? '• Metodologías Ágiles (Scrum)\n• Gestión de Presupuesto\n• Mejora Continua\n• Gestión de Riesgos\n• Negociación'
+                        : '• Agile Methodologies (Scrum)\n• Budget Management\n• Continuous Improvement\n• Risk Management\n• Negotiation',
+                    215, 285, 10, 'normal', '#334155', 160),
+                createText('comp-col3', lang === 'pt'
+                    ? '• Power BI / Tableau\n• MS Project / Jira\n• Excel Avançado\n• SAP / ERP\n• Lean Six Sigma'
+                    : lang === 'es'
+                        ? '• Power BI / Tableau\n• MS Project / Jira\n• Excel Avanzado\n• SAP / ERP\n• Lean Six Sigma'
+                        : '• Power BI / Tableau\n• MS Project / Jira\n• Advanced Excel\n• SAP / ERP\n• Lean Six Sigma',
+                    390, 285, 10, 'normal', '#334155', 165),
+
+                // Professional Experience - Achievement-focused
+                createText('exp-h', lang === 'pt' ? 'EXPERIÊNCIA PROFISSIONAL' : lang === 'es' ? 'EXPERIENCIA PROFESIONAL' : 'PROFESSIONAL EXPERIENCE', 40, 395, 13, 'bold', '#1e40af', 515),
+                { id: 'exp-line', type: 'shape', x: 40, y: 413, width: 80, height: 3, content: '', style: { backgroundColor: '#3b82f6', borderRadius: 0 } },
+
+                // Job 1 - Quantifiable achievements
+                createText('job1-title', lang === 'pt' ? 'GERENTE DE PROJETOS SÊNIOR' : lang === 'es' ? 'GERENTE DE PROYECTOS SENIOR' : 'SENIOR PROJECT MANAGER', 40, 430, 11, 'bold', '#1e293b', 350),
+                createText('job1-period', '2019 - 2024', 465, 430, 10, 'bold', '#64748b', 90, 'right'),
+                createText('job1-company', lang === 'pt' ? 'Empresa Tecnologia Ltda. | São Paulo, SP' : lang === 'es' ? 'Empresa Tecnología Ltda. | São Paulo, SP' : 'Technology Company Ltd. | São Paulo, SP', 40, 445, 10, 'italic', '#64748b', 515),
+                createText('job1-achievements', lang === 'pt'
+                    ? '• Liderou 12+ projetos estratégicos com orçamento total de R$ 15M, entregando 100% no prazo e dentro do budget\n• Implementou metodologia ágil que aumentou a produtividade da equipe em 35% e reduziu time-to-market em 40%\n• Gerenciou equipe multidisciplinar de 25 profissionais, alcançando índice de satisfação de 92% (NPS)\n• Otimizou processos operacionais resultando em economia anual de R$ 2.8M (28% de redução de custos)\n• Desenvolveu dashboard de KPIs que melhorou tomada de decisão e visibilidade executiva em 60%'
+                    : lang === 'es'
+                        ? '• Lideró 12+ proyectos estratégicos con presupuesto total de R$ 15M, entregando 100% a tiempo y dentro del presupuesto\n• Implementó metodología ágil que aumentó la productividad del equipo en 35% y redujo time-to-market en 40%\n• Gestionó equipo multidisciplinario de 25 profesionales, alcanzando índice de satisfacción del 92% (NPS)\n• Optimizó procesos operacionales resultando en economía anual de R$ 2.8M (28% de reducción de costos)\n• Desarrolló dashboard de KPIs que mejoró toma de decisiones y visibilidad ejecutiva en 60%'
+                        : '• Led 12+ strategic projects with total budget of R$ 15M, delivering 100% on time and within budget\n• Implemented agile methodology that increased team productivity by 35% and reduced time-to-market by 40%\n• Managed multidisciplinary team of 25 professionals, achieving 92% satisfaction index (NPS)\n• Optimized operational processes resulting in annual savings of R$ 2.8M (28% cost reduction)\n• Developed KPI dashboard that improved decision-making and executive visibility by 60%',
+                    40, 465, 10, 'normal', '#334155', 515),
+
+                // Job 2
+                createText('job2-title', lang === 'pt' ? 'COORDENADOR DE PROJETOS' : lang === 'es' ? 'COORDINADOR DE PROYECTOS' : 'PROJECT COORDINATOR', 40, 575, 11, 'bold', '#1e293b', 350),
+                createText('job2-period', '2016 - 2019', 465, 575, 10, 'bold', '#64748b', 90, 'right'),
+                createText('job2-company', lang === 'pt' ? 'Consultoria Estratégica S.A. | São Paulo, SP' : lang === 'es' ? 'Consultoría Estratégica S.A. | São Paulo, SP' : 'Strategic Consulting Inc. | São Paulo, SP', 40, 590, 10, 'italic', '#64748b', 515),
+                createText('job2-achievements', lang === 'pt'
+                    ? '• Coordenou 8 projetos simultâneos de transformação digital para clientes Fortune 500\n• Reduziu desvios de cronograma em 45% através de implementação de controles rigorosos\n• Certificou-se PMP e Six Sigma Green Belt, aplicando conhecimentos em otimização de processos\n• Treinou e mentorou 6 analistas júnior, com 100% de promoção em 18 meses'
+                    : lang === 'es'
+                        ? '• Coordinó 8 proyectos simultáneos de transformación digital para clientes Fortune 500\n• Redujo desvíos de cronograma en 45% a través de implementación de controles rigurosos\n• Se certificó PMP y Six Sigma Green Belt, aplicando conocimientos en optimización de procesos\n• Entrenó y mentoró 6 analistas junior, con 100% de promoción en 18 meses'
+                        : '• Coordinated 8 simultaneous digital transformation projects for Fortune 500 clients\n• Reduced schedule deviations by 45% through implementation of rigorous controls\n• Obtained PMP and Six Sigma Green Belt certifications, applying knowledge in process optimization\n• Trained and mentored 6 junior analysts, with 100% promotion rate in 18 months',
+                    40, 610, 10, 'normal', '#334155', 515),
+
+                // Education
+                createText('edu-h', lang === 'pt' ? 'FORMAÇÃO ACADÊMICA' : lang === 'es' ? 'FORMACIÓN ACADÉMICA' : 'EDUCATION', 40, 695, 13, 'bold', '#1e40af', 515),
+                { id: 'edu-line', type: 'shape', x: 40, y: 713, width: 80, height: 3, content: '', style: { backgroundColor: '#3b82f6', borderRadius: 0 } },
+
+                createText('edu1-degree', lang === 'pt' ? 'MBA em Gestão de Projetos' : lang === 'es' ? 'MBA en Gestión de Proyectos' : 'MBA in Project Management', 40, 730, 11, 'bold', '#1e293b', 350),
+                createText('edu1-year', '2018', 465, 730, 10, 'bold', '#64748b', 90, 'right'),
+                createText('edu1-school', lang === 'pt' ? 'Fundação Getulio Vargas (FGV) | São Paulo, SP' : lang === 'es' ? 'Fundación Getulio Vargas (FGV) | São Paulo, SP' : 'Getulio Vargas Foundation (FGV) | São Paulo, SP', 40, 745, 10, 'normal', '#64748b', 515),
+
+                createText('edu2-degree', lang === 'pt' ? 'Bacharelado em Administração de Empresas' : lang === 'es' ? 'Licenciatura en Administración de Empresas' : 'Bachelor in Business Administration', 40, 765, 11, 'bold', '#1e293b', 350),
+                createText('edu2-year', '2015', 465, 765, 10, 'bold', '#64748b', 90, 'right'),
+                createText('edu2-school', lang === 'pt' ? 'Universidade de São Paulo (USP) | São Paulo, SP' : lang === 'es' ? 'Universidad de São Paulo (USP) | São Paulo, SP' : 'University of São Paulo (USP) | São Paulo, SP', 40, 780, 10, 'normal', '#64748b', 515),
+
+                // Certifications - Important for ATS
+                createText('cert-h', lang === 'pt' ? 'CERTIFICAÇÕES PROFISSIONAIS' : lang === 'es' ? 'CERTIFICACIONES PROFESIONALES' : 'PROFESSIONAL CERTIFICATIONS', 40, 810, 13, 'bold', '#1e40af', 250),
+                createText('cert-list', lang === 'pt'
+                    ? '• PMP (Project Management Professional) - PMI\n• Six Sigma Black Belt - ASQ\n• Certified Scrum Master (CSM) - Scrum Alliance'
+                    : lang === 'es'
+                        ? '• PMP (Project Management Professional) - PMI\n• Six Sigma Black Belt - ASQ\n• Certified Scrum Master (CSM) - Scrum Alliance'
+                        : '• PMP (Project Management Professional) - PMI\n• Six Sigma Black Belt - ASQ\n• Certified Scrum Master (CSM) - Scrum Alliance',
+                    40, 828, 9, 'normal', '#334155', 250),
+
+                // Languages
+                createText('lang-h', t.languagesHeader, 310, 810, 13, 'bold', '#1e40af', 245),
+                createText('lang-list', lang === 'pt'
+                    ? '• Português (Nativo)\n• Inglês (Fluente - TOEFL 110/120)\n• Espanhol (Avançado)'
+                    : lang === 'es'
+                        ? '• Portugués (Nativo)\n• Inglés (Fluente - TOEFL 110/120)\n• Español (Avanzado)'
+                        : '• Portuguese (Native)\n• English (Fluent - TOEFL 110/120)\n• Spanish (Advanced)',
+                    310, 828, 9, 'normal', '#334155', 245),
+
+            ].map(el => ({ ...el, style: { ...el.style, fontFamily: (el.style as any).fontFamily || '"Calibri", "Arial", sans-serif', lineHeight: 1.5 } } as EditorElement))
         }
 
     ];
