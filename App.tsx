@@ -665,38 +665,33 @@ const App: React.FC = () => {
         // Alternatively, we can pass the parsed pages directly to export function
         // For simplicity, let's just trigger the export with the saved data
 
-        // Remove query param to prevent loop
-        window.history.replaceState({}, document.title, window.location.pathname);
-        localStorage.removeItem('pendingExportState');
+        // Helper to convert editor elements to exporter format
+        const mapElementsToExport = (elements: EditorElement[]) => {
+          const exportLines: any[] = [];
+          const exportShapes: any[] = [];
+          const exportImages: any[] = [];
 
-        alert('Pagamento confirmado! Iniciando download...');
-
-        // Trigger export with saved data immediately
-        import('./utils/pdfExporter').then(async ({ exportToPDF, downloadPDF }) => {
-          const exportPages = parsedState.pages.map((page: PDFPage) => ({
-            lines: page.elements
-              .filter(el => el.type === 'text')
-              .map(el => ({
+          elements.forEach(el => {
+            if (el.type === 'text') {
+              exportLines.push({
                 text: el.content,
                 x: el.x,
                 y: el.y,
                 fontSize: el.style.fontSize || 12,
                 fontWeight: el.style.fontWeight,
                 color: el.style.color
-              })),
-            shapes: page.elements
-              .filter(el => el.type === 'shape')
-              .map(el => ({
+              });
+            } else if (el.type === 'shape') {
+              exportShapes.push({
                 x: el.x,
                 y: el.y,
                 width: el.width,
                 height: el.height,
                 backgroundColor: el.style.backgroundColor,
                 opacity: el.style.opacity
-              })),
-            images: page.elements
-              .filter(el => el.type === 'image')
-              .map(el => ({
+              });
+            } else if (el.type === 'image') {
+              exportImages.push({
                 x: el.x,
                 y: el.y,
                 width: el.width,
@@ -704,15 +699,114 @@ const App: React.FC = () => {
                 src: el.content,
                 opacity: el.style.opacity,
                 rotation: el.rotation
-              })),
-            backgroundImage: page.backgroundImage,
-            width: 595,
-            height: 842,
-            drawingData: page.drawingData
-          }));
+              });
+            } else if (el.type === 'smart-element') {
+              const content = el.content?.toLowerCase() || '';
+              if (content.includes('photo') && el.componentData?.userImage) {
+                exportImages.push({
+                  x: el.x,
+                  y: el.y,
+                  width: el.width,
+                  height: el.height,
+                  src: el.componentData.userImage,
+                  opacity: el.style.opacity
+                });
+              } else if (content.includes('resumesection') && el.componentData?.section) {
+                const section = el.componentData.section;
+                // Basic mapping for resume sections - extract text items
+                // Note: Simplified for MVP as full layout replication is complex
+                let currentY = el.y;
+                if (section.title) {
+                  exportLines.push({ text: section.title, x: el.x, y: currentY, fontSize: 14, fontWeight: 'bold' });
+                  currentY += 20;
+                }
+                if (section.items) {
+                  section.items.forEach((item: any) => {
+                    const mainText = item.position || item.school || '';
+                    const subText = item.company || item.degree || '';
+                    const period = item.period || item.year || '';
+
+                    if (mainText) {
+                      exportLines.push({ text: mainText, x: el.x, y: currentY, fontSize: 11, fontWeight: 'bold' });
+                      currentY += 15;
+                    }
+                    if (subText || period) {
+                      exportLines.push({ text: `${subText}${subText && period ? ' | ' : ''}${period}`, x: el.x, y: currentY, fontSize: 9 });
+                      currentY += 12;
+                    }
+                    if (item.description) {
+                      const descLines = item.description.split('\n');
+                      descLines.forEach((d: string) => {
+                        exportLines.push({ text: d, x: el.x + 10, y: currentY, fontSize: 9 });
+                        currentY += 12;
+                      });
+                    }
+                    currentY += 5;
+                  });
+                } else if (section.content) {
+                  const contentLines = section.content.split('\n');
+                  contentLines.forEach((l: string) => {
+                    exportLines.push({ text: l, x: el.x, y: currentY, fontSize: 10 });
+                    currentY += 12;
+                  });
+                }
+              }
+            }
+          });
+          return { exportLines, exportShapes, exportImages };
+        };
+
+        // Trigger export with saved data immediately
+        import('./utils/pdfExporter').then(async ({ exportToPDF, downloadPDF }) => {
+          const exportPages = parsedState.pages.map((page: PDFPage) => {
+            const { exportLines, exportShapes, exportImages } = mapElementsToExport(page.elements);
+            return {
+              lines: exportLines,
+              shapes: exportShapes,
+              images: exportImages,
+              backgroundImage: page.backgroundImage,
+              width: 595,
+              height: 842,
+              drawingData: page.drawingData
+            };
+          });
 
           const pdfBytes = await exportToPDF(exportPages);
-          downloadPDF(pdfBytes, 'documento-final.pdf');
+          downloadPDF(pdfBytes, 'curriculo-inteligente.pdf');
+
+          // NEW: Send by Email too
+          const pdfBase64 = btoa(
+            new Uint8Array(pdfBytes)
+              .reduce((data, byte) => data + String.fromCharCode(byte), '')
+          );
+
+          const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+
+          // Find email in restored content
+          const allRestoredText = parsedState.pages.flatMap((p: any) => p.elements)
+            .filter((el: any) => el.type === 'text')
+            .map((el: any) => el.content)
+            .join(' ');
+          const emailMatch = allRestoredText.match(/[a-zA-Z0-9._%+-]+@([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}/);
+          const userEmail = emailMatch ? emailMatch[0] : null;
+
+          if (userEmail) {
+            fetch(`${apiBase}/send-pdf-email`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ email: userEmail, pdfBase64 })
+            }).then(r => r.json()).then(data => {
+              if (data.message && data.message.includes('Simulação')) {
+                console.log('Email enviado via simulação (SMTP não configurado)');
+              } else if (data.success) {
+                console.log('Email enviado com sucesso!');
+              }
+            }).catch(err => console.error('Erro ao enviar email:', err));
+          }
+
+          // Cleanup state
+          window.history.replaceState({}, document.title, window.location.pathname);
+          localStorage.removeItem('pendingExportState');
         });
       }
     }
@@ -1040,11 +1134,41 @@ const App: React.FC = () => {
 
 
 
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleCheckoutAndExport}
+              className="group flex items-center gap-2 rounded-full bg-gradient-to-r from-indigo-600 to-violet-600 px-6 py-2 text-sm font-bold text-white transition-all hover:scale-105 hover:shadow-lg hover:shadow-indigo-500/30"
+            >
+              <Download size={18} className="group-hover:translate-y-0.5 transition-transform" />
+              {translations[language].exportPdf}
+            </button>
+          </div>
+
+          <div className="h-6 w-px bg-gray-200 mx-2" />
+
+          <button
+            onClick={() => pdfInputRef.current?.click()}
+            className="flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-100 transition-all"
+          >
+            <FileText size={18} />
+            {translations[language].insertPdf}
+          </button>
+
           <div className="h-6 w-px bg-gray-200 mx-2" />
 
           {/* Word Conversion Buttons */}
           {editorState.sessionId && (
             <>
+              <button
+                onClick={handleConvertToWord}
+                className="flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-100 transition-all border border-transparent"
+                title={translations[language].wordEditTitle}
+              >
+                <div className="p-1 bg-blue-100 text-blue-600 rounded">
+                  <FileText size={14} />
+                </div>
+                {translations[language].editInWord}
+              </button>
 
               {showWordReimport && (
                 <button

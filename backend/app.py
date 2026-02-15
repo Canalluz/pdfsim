@@ -228,6 +228,7 @@ stripe.api_key = os.getenv('STRIPE_SECRET_KEY')
 
 @app.route('/create-checkout-session', methods=['POST'])
 def create_checkout_session():
+    data = request.json or {}
     try:
         if not stripe.api_key:
             print("Error: STRIPE_SECRET_KEY is not set in environment variables.")
@@ -290,6 +291,68 @@ def create_checkout_session():
     except Exception as e:
         print(f"Error creating checkout session: {str(e)}")
         return jsonify(error=str(e)), 403
+
+@app.route('/send-pdf-email', methods=['POST'])
+def send_pdf_email():
+    """Send generated PDF via email"""
+    data = request.json
+    email = data.get('email')
+    pdf_base64 = data.get('pdfBase64') # Full data URL or just base64
+    
+    if not email or not pdf_base64:
+        return jsonify({'error': 'Email and PDF content are required'}), 400
+    
+    # Email Configuration from Env
+    smtp_server = os.getenv('SMTP_SERVER', 'smtp.gmail.com')
+    smtp_port = int(os.getenv('SMTP_PORT', 587))
+    smtp_user = os.getenv('SMTP_USER')
+    smtp_password = os.getenv('SMTP_PASSWORD')
+    
+    if not smtp_user or not smtp_password:
+        print("Warning: SMTP credentials not configured. Skipping email send.")
+        return jsonify({'success': True, 'message': 'Simulação: Email não configurado no servidor.'})
+
+    try:
+        import smtplib
+        from email.mime.multipart import MIMEMultipart
+        from email.mime.base import MIMEBase
+        from email.mime.text import MIMEText
+        from email import encoders
+        import base64
+
+        # Prepare message
+        msg = MIMEMultipart()
+        msg['From'] = smtp_user
+        msg['To'] = email
+        msg['Subject'] = 'Seu Currículo Inteligente - PDF Sim'
+        
+        body = "Olá! Conforme solicitado, aqui está o seu currículo gerado no PDF Sim.\n\nObrigado por usar nossos serviços!"
+        msg.attach(MIMEText(body, 'plain'))
+
+        # Process PDF attachment
+        if 'base64,' in pdf_base64:
+            pdf_base64 = pdf_base64.split('base64,')[1]
+        
+        pdf_data = base64.b64decode(pdf_base64)
+        
+        part = MIMEBase('application', 'octet-stream')
+        part.set_payload(pdf_data)
+        encoders.encode_base64(part)
+        part.add_header('Content-Disposition', f"attachment; filename=curriculo.pdf")
+        msg.attach(part)
+
+        # Connect and send
+        server = smtplib.SMTP(smtp_server, smtp_port)
+        server.starttls()
+        server.login(smtp_user, smtp_password)
+        server.send_message(msg)
+        server.quit()
+        
+        print(f"Email sent successfully to {email}")
+        return jsonify({'success': True})
+    except Exception as e:
+        print(f"Error sending email: {str(e)}")
+        return jsonify({'error': f"Erro ao enviar email: {str(e)}"}), 500
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000)

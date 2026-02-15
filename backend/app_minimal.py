@@ -19,6 +19,7 @@ def health_check():
 @app.route('/create-checkout-session', methods=['POST'])
 def create_checkout_session():
     try:
+        data = request.json or {}
         if not stripe.api_key:
             print("Error: STRIPE_SECRET_KEY is not set in environment variables.")
             return jsonify(error="Configuração do Stripe ausente no servidor."), 500
@@ -79,6 +80,57 @@ def create_checkout_session():
     except Exception as e:
         print(f"Error creating checkout session: {str(e)}")
         return jsonify(error=str(e)), 403
+
+@app.route('/send-pdf-email', methods=['POST'])
+def send_pdf_email():
+    """Send generated PDF via email"""
+    data = request.json
+    email = data.get('email')
+    pdf_base64 = data.get('pdfBase64')
+    
+    if not email or not pdf_base64:
+        return jsonify({'error': 'Email and PDF content are required'}), 400
+    
+    smtp_server = os.getenv('SMTP_SERVER', 'smtp.gmail.com')
+    smtp_port = int(os.getenv('SMTP_PORT', 587))
+    smtp_user = os.getenv('SMTP_USER')
+    smtp_password = os.getenv('SMTP_PASSWORD')
+    
+    if not smtp_user or not smtp_password:
+        return jsonify({'success': True, 'message': 'Simulação: Email não configurado no servidor.'})
+
+    try:
+        import smtplib
+        from email.mime.multipart import MIMEMultipart
+        from email.mime.base import MIMEBase
+        from email.mime.text import MIMEText
+        from email import encoders
+        import base64
+
+        msg = MIMEMultipart()
+        msg['From'] = smtp_user
+        msg['To'] = email
+        msg['Subject'] = 'Seu Currículo Inteligente - PDF Sim'
+        msg.attach(MIMEText("Olá! Aqui está o seu currículo gerado no PDF Sim.", 'plain'))
+
+        if 'base64,' in pdf_base64:
+            pdf_base64 = pdf_base64.split('base64,')[1]
+        pdf_data = base64.b64decode(pdf_base64)
+        
+        part = MIMEBase('application', 'octet-stream')
+        part.set_payload(pdf_data)
+        encoders.encode_base64(part)
+        part.add_header('Content-Disposition', "attachment; filename=curriculo.pdf")
+        msg.attach(part)
+
+        server = smtplib.SMTP(smtp_server, smtp_port)
+        server.starttls()
+        server.login(smtp_user, smtp_password)
+        server.send_message(msg)
+        server.quit()
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
     print("Starting Minimal Backend Server on port 5000...")
