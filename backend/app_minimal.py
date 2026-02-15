@@ -23,12 +23,14 @@ def create_checkout_session():
             print("Error: STRIPE_SECRET_KEY is not set in environment variables.")
             return jsonify(error="Configuração do Stripe ausente no servidor."), 500
 
-        print(f"Creating checkout session with key: {stripe.api_key[:10]}...")
+        email = data.get('email')
+        print(f"Creating checkout session with key: {stripe.api_key[:10]}... (Email: {email})")
         
         try:
             # Try automatic payment methods first (Preferred)
             checkout_session = stripe.checkout.Session.create(
                 automatic_payment_methods={'enabled': True},
+                customer_email=email,
                 line_items=[
                     {
                         'price_data': {
@@ -52,6 +54,7 @@ def create_checkout_session():
             
             # Fallback for older API versions or restricted accounts
             checkout_session = stripe.checkout.Session.create(
+                customer_email=email,
                 payment_method_types=['card'],
                 line_items=[
                     {

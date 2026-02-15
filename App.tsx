@@ -619,8 +619,19 @@ const App: React.FC = () => {
     // 2. Create Checkout Session
     try {
       const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+
+      // Try to find email in content
+      const allText = editorState.pages.flatMap(p => p.elements)
+        .filter(el => el.type === 'text')
+        .map(el => el.content)
+        .join(' ');
+      const emailMatch = allText.match(/[a-zA-Z0-9._%+-]+@([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}/);
+      const userEmail = emailMatch ? emailMatch[0] : null;
+
       const response = await fetch(`${apiBase}/create-checkout-session`, {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: userEmail })
       });
 
       if (!response.ok) {
