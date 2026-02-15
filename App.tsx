@@ -1134,16 +1134,6 @@ const App: React.FC = () => {
 
 
 
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handleCheckoutAndExport}
-              className="group flex items-center gap-2 rounded-full bg-gradient-to-r from-indigo-600 to-violet-600 px-6 py-2 text-sm font-bold text-white transition-all hover:scale-105 hover:shadow-lg hover:shadow-indigo-500/30"
-            >
-              <Download size={18} className="group-hover:translate-y-0.5 transition-transform" />
-              {translations[language].exportPdf}
-            </button>
-          </div>
-
           <div className="h-6 w-px bg-gray-200 mx-2" />
 
           <button
