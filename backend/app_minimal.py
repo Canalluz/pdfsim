@@ -27,6 +27,8 @@ def create_checkout_session():
         email = data.get('email')
         print(f"Creating checkout session with key: {stripe.api_key[:10]}... (Email: {email})")
         
+        origin = data.get('origin', os.getenv('FRONTEND_URL', 'http://localhost:5173'))
+        
         try:
             # Try automatic payment methods first (Preferred)
             checkout_session = stripe.checkout.Session.create(
@@ -46,8 +48,8 @@ def create_checkout_session():
                 ],
                 mode='payment',
                 locale='pt-BR',
-                success_url=f"{os.getenv('FRONTEND_URL', 'http://localhost:5173')}/?payment_success=true",
-                cancel_url=f"{os.getenv('FRONTEND_URL', 'http://localhost:5173')}/?payment_canceled=true",
+                success_url=f"{origin}/?payment_success=true",
+                cancel_url=f"{origin}/?payment_canceled=true",
             )
         except stripe.error.InvalidRequestError as e:
             error_msg = str(e)
@@ -71,8 +73,8 @@ def create_checkout_session():
                 ],
                 mode='payment',
                 locale='pt-BR',
-                success_url=f"{os.getenv('FRONTEND_URL', 'http://localhost:5173')}/?payment_success=true",
-                cancel_url=f"{os.getenv('FRONTEND_URL', 'http://localhost:5173')}/?payment_canceled=true",
+                success_url=f"{origin}/?payment_success=true",
+                cancel_url=f"{origin}/?payment_canceled=true",
             )
 
         print(f"Session created: {checkout_session.id}")

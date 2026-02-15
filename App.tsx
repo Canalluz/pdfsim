@@ -631,7 +631,10 @@ const App: React.FC = () => {
       const response = await fetch(`${apiBase}/create-checkout-session`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: userEmail })
+        body: JSON.stringify({
+          email: userEmail,
+          origin: window.location.origin
+        })
       });
 
       if (!response.ok) {
