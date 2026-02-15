@@ -663,6 +663,7 @@ const App: React.FC = () => {
     setIsEnhancing(true);
 
     try {
+      // Process all text elements with professional resume enhancement
       for (const element of textElements) {
         const enhanced = await rewriteTextProfessionally(element.content, 'professional resume');
         if (enhanced) {
