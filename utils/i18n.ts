@@ -67,11 +67,7 @@ export const translations = {
         noEdu: 'Nenhuma formação adicionada ainda.',
         skillsPlaceholder: 'Ex: Inglês Avançado, Photoshop, Liderança...',
         addSkill: 'Adicionar',
-        createWithAI: 'Melhorar Textos com IA',
-        noTextToEnhance: 'Nenhum texto encontrado para melhorar',
-        textsEnhanced: 'Textos melhorados com sucesso! ✨',
-        enhanceError: 'Erro ao melhorar textos. Verifique sua chave API Gemini.',
-        enhancing: 'Melhorando textos...',
+        createWithAI: 'Criar com IA',
 
         // Properties Sidebar
         propertiesTitle: 'Propriedades',
@@ -267,11 +263,7 @@ export const translations = {
         noEdu: 'Aún no se ha agregado ninguna formación.',
         skillsPlaceholder: 'Ej: Inglés Avanzado, Photoshop, Liderazgo...',
         addSkill: 'Agregar',
-        createWithAI: 'Mejorar Textos con IA',
-        noTextToEnhance: 'No se encontró texto para mejorar',
-        textsEnhanced: '¡Textos mejorados con éxito! ✨',
-        enhanceError: 'Error al mejorar textos. Verifique su clave API Gemini.',
-        enhancing: 'Mejorando textos...',
+        createWithAI: 'Crear con IA',
 
         // Properties Sidebar
         propertiesTitle: 'Propiedades',
@@ -467,11 +459,7 @@ export const translations = {
         noEdu: 'No education added yet.',
         skillsPlaceholder: 'Ex: Advanced English, Photoshop, Leadership...',
         addSkill: 'Add',
-        createWithAI: 'Enhance Texts with AI',
-        noTextToEnhance: 'No text found to enhance',
-        textsEnhanced: 'Texts enhanced successfully! ✨',
-        enhanceError: 'Error enhancing texts. Check your Gemini API key.',
-        enhancing: 'Enhancing texts...',
+        createWithAI: 'Create with AI',
 
         // Properties Sidebar
         propertiesTitle: 'Properties',

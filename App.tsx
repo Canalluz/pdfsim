@@ -23,13 +23,11 @@ import {
   Camera,
   X,
   FileEdit,
-  Upload,
-  RefreshCw
+  Upload
 } from 'lucide-react';
 import { loadStripe } from '@stripe/stripe-js';
 import { EditorElement, PDFPage, EditorState, ElementType } from './types';
 import EditorCanvas from './components/EditorCanvas';
-import { rewriteTextProfessionally } from './services/geminiService';
 import PropertiesSidebar from './components/PropertiesSidebar';
 import Toolbar from './components/Toolbar';
 
@@ -75,9 +73,6 @@ const App: React.FC = () => {
   const [isConverting, setIsConverting] = useState(false);
   const [showWordReimport, setShowWordReimport] = useState(false);
   const wordInputRef = useRef<HTMLInputElement>(null);
-
-  // AI Enhancement State
-  const [isEnhancing, setIsEnhancing] = useState(false);
 
   const currentPage = editorState.pages.find(p => p.id === editorState.currentPageId) || editorState.pages[0] || { id: 'temp-page', pageNumber: 1, elements: [] };
 
@@ -647,41 +642,6 @@ const App: React.FC = () => {
     }
   };
 
-  // AI Text Enhancement Function
-  const handleEnhanceAllTexts = async () => {
-    const currentPageElements = editorState.pages.find(
-      p => p.id === editorState.currentPageId
-    )?.elements || [];
-
-    const textElements = currentPageElements.filter(el => el.type === 'text');
-
-    if (textElements.length === 0) {
-      alert(translations[language].noTextToEnhance || 'Nenhum texto encontrado para melhorar');
-      return;
-    }
-
-    setIsEnhancing(true);
-
-    try {
-      // Process all text elements with professional resume enhancement
-      for (const element of textElements) {
-        const enhanced = await rewriteTextProfessionally(element.content, 'professional resume');
-        if (enhanced) {
-          handleUpdateElement(editorState.currentPageId, element.id, {
-            content: enhanced
-          });
-        }
-      }
-      alert(translations[language].textsEnhanced || 'Textos melhorados com sucesso!');
-    } catch (error) {
-      console.error('Error enhancing texts:', error);
-      alert(translations[language].enhanceError || 'Erro ao melhorar textos. Verifique sua chave API.');
-    } finally {
-      setIsEnhancing(false);
-    }
-  };
-
-
   // Check for payment success on load
   useEffect(() => {
     const query = new URLSearchParams(window.location.search);
@@ -1087,19 +1047,14 @@ const App: React.FC = () => {
             </div>
           </div>
 
-          <button
-            onClick={handleEnhanceAllTexts}
-            disabled={isEnhancing}
-            className="flex items-center gap-2 rounded-full px-4 py-1.5 text-xs font-bold text-white bg-gradient-to-r from-purple-600 to-indigo-600 hover:shadow-lg transition-all ml-4 disabled:opacity-50"
-          >
-            {isEnhancing ? (
-              <RefreshCw size={14} className="animate-spin" />
-            ) : (
-              <Zap size={14} className="fill-yellow-300 text-yellow-300" />
-            )}
-            {isEnhancing ? translations[language].enhancing : translations[language].createWithAI}
-          </button>
 
+          <button
+            onClick={() => setIsWizardOpen(true)}
+            className="flex items-center gap-2 rounded-full px-4 py-1.5 text-xs font-bold text-white bg-gradient-to-r from-purple-600 to-indigo-600 hover:shadow-lg transition-all ml-4"
+          >
+            <Zap size={14} className="fill-yellow-300 text-yellow-300" />
+            {translations[language].createWithAI}
+          </button>
           <p className="text-xl font-semibold text-gray-700 italic animate-fade-in ml-6 whitespace-nowrap hidden xl:block">
             "Currículo profissional, visão de recrutador e edição de PDF"
           </p>
