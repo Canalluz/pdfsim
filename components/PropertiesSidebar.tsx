@@ -316,11 +316,14 @@ const PropertiesSidebar: React.FC<PropertiesSidebarProps> = ({
             </div>
           )}
           {(element.type === 'text' || element.type === 'shape' || element.type === 'table') && element.type !== 'smart-element' && (
-            <textarea
-              value={element.content}
-              onChange={(e) => onUpdate({ content: e.target.value })}
-              className="w-full bg-gray-50 border rounded p-2 text-xs focus:ring-1 focus:ring-indigo-500 outline-none min-h-[80px] resize-none"
-            />
+            // Hide textarea for shapes that have an image content (it's confusing to see base64 strings)
+            !(element.type === 'shape' && element.content.startsWith('data:image/')) && (
+              <textarea
+                value={element.content}
+                onChange={(e) => onUpdate({ content: e.target.value })}
+                className="w-full bg-gray-50 border rounded p-2 text-xs focus:ring-1 focus:ring-indigo-500 outline-none min-h-[80px] resize-none"
+              />
+            )
           )}
         </section>
 

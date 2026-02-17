@@ -22,6 +22,7 @@ export interface EditorElement {
   };
   isBackground?: boolean; // Mark background images as non-interactive
   locked?: boolean;
+  originId?: string; // To track split elements across pages
   style: {
     fontSize?: number;
     fontWeight?: string;

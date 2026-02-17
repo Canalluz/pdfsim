@@ -370,51 +370,35 @@ const App: React.FC = () => {
   };
 
   // Automatic Pagination Logic (Refined)
-  const checkPageOverflow = (pageIndex: number, currentPages: PDFPage[]): PDFPage[] => {
+  const checkPageOverflow = (pageIndex: number, currentPages: PDFPage[], currentSelectedId: string | null): { pages: PDFPage[], newSelectedId?: string, newPageId?: string } => {
     const PAGE_HEIGHT = 842;
-    const MARGIN_BOTTOM = 60; // Increased margin to ensure visual clearance
+    const MARGIN_BOTTOM = 60;
     const CONTENT_MAX_Y = PAGE_HEIGHT - MARGIN_BOTTOM;
     const TOP_MARGIN_NEXT_PAGE = 50;
 
     const page = currentPages[pageIndex];
-    if (!page) return currentPages;
+    if (!page) return { pages: currentPages };
 
-    // Identify overflowing elements
     const overflowingElements = page.elements.filter(el => {
       if (el.isBackground || el.locked) return false;
-      // Ensure numeric comparison
-      const y = Number(el.y);
-      const h = Number(el.height);
-      return (y + h) > CONTENT_MAX_Y;
+      return (Number(el.y) + Number(el.height)) > CONTENT_MAX_Y;
     });
 
-    if (overflowingElements.length === 0) {
-      return currentPages;
-    }
+    if (overflowingElements.length === 0) return { pages: currentPages };
 
-    console.log('Overflow detected on page', pageIndex, overflowingElements);
-
-    // Sort: process lower elements first? Or top elements?
-    // If we process top elements first, we might split one, and then the ones below it need to move too.
     overflowingElements.sort((a, b) => a.y - b.y);
 
     let nextPageIndex = pageIndex + 1;
     let nextPages = [...currentPages];
 
-    // Create next page if needed
     if (nextPageIndex >= nextPages.length) {
-      const newPage: PDFPage = {
-        id: `page-${Date.now()}-${Math.random()}`,
-        pageNumber: nextPages.length + 1,
-        elements: []
-      };
-      nextPages.push(newPage);
+      nextPages.push({ id: `page-${Date.now()}-${Math.random()}`, pageNumber: nextPages.length + 1, elements: [] });
     }
 
-    // Process elements
-    const elementsToMove: EditorElement[] = [];
     const elementsToKeep: EditorElement[] = [];
-    const splitMap = new Map<string, boolean>(); // Track split status
+    const moves: { targetId?: string, element: EditorElement }[] = [];
+    let newSelectedId: string | undefined;
+    let newPageId: string | undefined;
 
     page.elements.forEach(el => {
       if (!overflowingElements.includes(el)) {
@@ -422,105 +406,100 @@ const App: React.FC = () => {
         return;
       }
 
-      // Check if text and partially overlapping
-      // If y is already past limit, move entirely.
       if (el.type === 'text' && el.y < CONTENT_MAX_Y) {
-
         const availableHeight = Math.max(0, CONTENT_MAX_Y - el.y);
+        const fontSize = el.style.fontSize || 12;
+        const lineHeight = (el.style.lineHeight || 1.4) * fontSize;
+        const paddingOffset = 10;
+        const maxLines = Math.floor((availableHeight - paddingOffset) / lineHeight);
 
-        // If really small space, just move it
-        if (availableHeight < 30) {
-          elementsToMove.push(el);
+        if (maxLines <= 0) {
+          moves.push({ element: el });
           return;
         }
 
-        // Split logic
-        const ratio = availableHeight / el.height;
-        const estimatedChars = Math.floor(el.content.length * ratio);
-
-        // Safe break point
-        const searchBuffer = 100;
-        let splitIdx = estimatedChars;
-
-        // Search backwards for newline or space
-        let found = false;
-        for (let i = 0; i < searchBuffer; i++) {
-          const char = el.content[estimatedChars - i];
-          if (char === '\n' || char === ' ') {
-            splitIdx = estimatedChars - i;
-            found = true;
-            break;
-          }
-        }
-
-        if (!found) splitIdx = estimatedChars; // Force split if no safe place
-
-        const part1 = el.content.substring(0, splitIdx);
-        const part2 = el.content.substring(splitIdx).trim();
+        const lines = el.content.split('\n');
+        const part1 = lines.slice(0, maxLines).join('\n');
+        const part2 = lines.slice(maxLines).join('\n');
 
         if (part2.length > 0) {
           elementsToKeep.push({
             ...el,
             content: part1,
-            height: availableHeight
+            height: maxLines * lineHeight + paddingOffset,
+            originId: el.originId || el.id
           });
 
-          elementsToMove.push({
-            ...el,
-            id: `${el.id}-split-${Date.now()}`,
-            content: part2,
-            height: el.height - availableHeight, // allow auto-resize later
-            y: 0
-          });
-          splitMap.set(el.id, true);
+          const nextPage = nextPages[nextPageIndex];
+          const existingChild = nextPage.elements.find(child => child.originId === (el.originId || el.id));
+
+          if (existingChild) {
+            // Use replacement for master-slave flow consistency
+            moves.push({
+              targetId: existingChild.id,
+              element: { ...el, id: existingChild.id, content: part2, originId: el.originId || el.id }
+            });
+          } else {
+            const splitId = `${el.id}-split-${Date.now()}`;
+            moves.push({
+              element: { ...el, id: splitId, content: part2, y: 0, originId: el.originId || el.id }
+            });
+            if (el.id === currentSelectedId) {
+              newSelectedId = splitId;
+              newPageId = nextPage.id;
+            }
+          }
         } else {
-          // Split didn't result in new content, just keep (shouldn't happen with overflow check)
-          elementsToMove.push(el);
+          moves.push({ element: el });
         }
-
       } else {
-        // Move entirely
-        elementsToMove.push(el);
+        moves.push({ element: el });
       }
     });
 
-    // Update current page
-    nextPages[pageIndex] = {
-      ...page,
-      elements: elementsToKeep
-    };
+    nextPages[pageIndex] = { ...page, elements: elementsToKeep };
+    const nextPage = nextPages[nextPageIndex];
+    let updatedNextElements = [...nextPage.elements];
+    let pushShift = 0;
 
-    // Add to next page
-    let currentY = TOP_MARGIN_NEXT_PAGE;
-
-    const positionedMovedElements = elementsToMove.map(el => {
-      const newEl = { ...el, y: currentY, id: el.id.includes('split') ? el.id : el.id };
-      // Reset height for text to 'auto' logic if possible, or estimates
-      currentY += (el.height || 50) + 10;
-      return newEl;
+    // Apply moves and calculate shifting
+    moves.forEach(move => {
+      if (move.targetId) {
+        const target = updatedNextElements.find(e => e.id === move.targetId);
+        if (target) {
+          const fontSize = target.style.fontSize || 12;
+          const lineHeight = (target.style.lineHeight || 1.4) * fontSize;
+          const newHeight = move.element.content.split('\n').length * lineHeight + 10;
+          const delta = newHeight - target.height;
+          pushShift += Math.max(0, delta);
+          updatedNextElements = updatedNextElements.map(e => e.id === move.targetId ? { ...e, content: move.element.content, height: newHeight } : e);
+        }
+      } else {
+        const h = move.element.height || 50;
+        updatedNextElements.unshift({ ...move.element, y: TOP_MARGIN_NEXT_PAGE + pushShift });
+        pushShift += h + 12;
+      }
     });
 
-    // Shift existing elements on next page
-    const nextPage = nextPages[nextPageIndex];
-    const shiftAmount = currentY - TOP_MARGIN_NEXT_PAGE + 10;
+    // Shift everything else on next page
+    const moveIds = moves.map(m => m.targetId || m.element.id);
+    updatedNextElements = updatedNextElements.map(el => {
+      if (moveIds.includes(el.id)) return el;
+      return { ...el, y: el.y + pushShift };
+    });
 
-    const existingElementsShifted = nextPage.elements.map(el => ({
-      ...el,
-      y: el.y + shiftAmount
-    }));
+    nextPages[nextPageIndex] = { ...nextPage, elements: updatedNextElements };
 
-    nextPages[nextPageIndex] = {
-      ...nextPage,
-      elements: [...positionedMovedElements, ...existingElementsShifted]
+    const recursiveResult = checkPageOverflow(nextPageIndex, nextPages, currentSelectedId);
+    return {
+      pages: recursiveResult.pages,
+      newSelectedId: newSelectedId || recursiveResult.newSelectedId,
+      newPageId: newPageId || recursiveResult.newPageId
     };
-
-    // Recursively check next page
-    return checkPageOverflow(nextPageIndex, nextPages);
   };
 
   const handleUpdateElement = useCallback((pageId: string, elementId: string, updates: Partial<EditorElement>) => {
     setEditorState(prev => {
-      // 1. Apply updates
       const pageIndex = prev.pages.findIndex(p => p.id === pageId);
       if (pageIndex === -1) return prev;
 
@@ -530,24 +509,24 @@ const App: React.FC = () => {
           : p
       );
 
-      // 2. Check for overflow
-      // Only trigger if height or y changed, but checking always is safer for consistency
       if (updates.height || updates.y || updates.content) {
         try {
-          const rebalancedPages = checkPageOverflow(pageIndex, updatedPages);
-          return { ...prev, pages: rebalancedPages };
+          const result = checkPageOverflow(pageIndex, updatedPages, prev.selectedElementId);
+          return {
+            ...prev,
+            pages: result.pages,
+            selectedElementId: result.newSelectedId || prev.selectedElementId,
+            currentPageId: result.newPageId || prev.currentPageId
+          };
         } catch (e) {
           console.error("Pagination Error", e);
           return { ...prev, pages: updatedPages };
         }
       }
 
-      return {
-        ...prev,
-        pages: updatedPages
-      };
+      return { ...prev, pages: updatedPages };
     });
-  }, []);
+  }, [checkPageOverflow]);
 
   const handleDeleteElement = useCallback(() => {
     if (!editorState.selectedElementId) return;
@@ -617,16 +596,45 @@ const App: React.FC = () => {
       return { ...prev, pages: prev.pages.map(p => p.id === prev.currentPageId ? { ...p, elements: newElements } : p) };
     });
   }, [editorState.selectedElementId, editorState.currentPageId]);
+  // Centralized tool reset logic
+  const resetToolModes = useCallback((keepSelectedId = true) => {
+    setEditorState(prev => ({
+      ...prev,
+      penMode: false,
+      eraserMode: false,
+      selectedElementId: keepSelectedId ? prev.selectedElementId : null
+    }));
+    setIsShapeSelectorOpen(false);
+    setIsTableSelectorOpen(false);
+    setIsTemplateSelectorOpen(false);
+  }, []);
 
   const handleToggleEraser = useCallback(() => {
-    setEditorState(prev => ({ ...prev, eraserMode: !prev.eraserMode, penMode: false, selectedElementId: null }));
+    setEditorState(prev => {
+      const newMode = !prev.eraserMode;
+      if (newMode) {
+        setIsShapeSelectorOpen(false);
+        setIsTableSelectorOpen(false);
+        setIsTemplateSelectorOpen(false);
+      }
+      return { ...prev, eraserMode: newMode, penMode: false, selectedElementId: null };
+    });
   }, []);
 
   const handleTogglePen = useCallback(() => {
-    setEditorState(prev => ({ ...prev, penMode: !prev.penMode, eraserMode: false, selectedElementId: null }));
+    setEditorState(prev => {
+      const newMode = !prev.penMode;
+      if (newMode) {
+        setIsShapeSelectorOpen(false);
+        setIsTableSelectorOpen(false);
+        setIsTemplateSelectorOpen(false);
+      }
+      return { ...prev, penMode: newMode, eraserMode: false, selectedElementId: null };
+    });
   }, []);
 
   const handleAddElement = (type: ElementType, content?: string, style: any = {}, componentData?: any, w?: number, h?: number) => {
+    resetToolModes();
     const newElement: EditorElement = {
       id: `el-${Date.now()}`,
       type,
@@ -645,11 +653,12 @@ const App: React.FC = () => {
     setEditorState(prev => ({
       ...prev,
       pages: prev.pages.map(p => p.id === prev.currentPageId ? { ...p, elements: [...p.elements, newElement] } : p),
-      selectedElementId: newElement.id
+      selectedElementId: newElement.id,
     }));
   };
 
   const handleAddPage = () => {
+    resetToolModes();
     const newPage: PDFPage = {
       id: `page-${Date.now()}`,
       pageNumber: editorState.pages.length + 1,
@@ -674,15 +683,23 @@ const App: React.FC = () => {
 
       console.log('Initiating checkout with API:', apiUrl);
 
-      const res = await fetch(`${apiUrl}/create-checkout-session`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          priceId: 'price_1Qv3xMBy8vR5Pmxm0Vz12345',
-          origin: window.location.origin,
-          email: 'user_email_placeholder@example.com' // Optional: gather real email if available
-        })
-      });
+      let res;
+      try {
+        res = await fetch(`${apiUrl}/create-checkout-session`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            priceId: 'price_1Qv3xMBy8vR5Pmxm0Vz12345',
+            origin: window.location.origin,
+            email: 'user_email_placeholder@example.com'
+          })
+        });
+      } catch (fetchErr: any) {
+        console.error('Network Error:', fetchErr);
+        throw new Error(language === 'pt'
+          ? `Erro de Conexão: O servidor em ${apiUrl} não pôde ser alcançado. Verifique se o backend está rodando.`
+          : `Connection Error: Could not reach server at ${apiUrl}. Please ensure the backend is running.`);
+      }
 
       if (!res.ok) {
         const errorText = await res.text();
@@ -1035,20 +1052,44 @@ const App: React.FC = () => {
         <Toolbar
           language={language}
           onAddElement={handleAddElement}
-          onOpenTemplates={() => setIsTemplateSelectorOpen(true)}
-          onAddImage={handleImageUploadTrigger}
-          onAddPdf={handlePdfUploadTrigger}
-          onAddCamera={startCamera}
+          onOpenTemplates={() => {
+            resetToolModes();
+            setIsTemplateSelectorOpen(true);
+          }}
+          onAddImage={() => {
+            resetToolModes();
+            handleImageUploadTrigger();
+          }}
+          onAddPdf={() => {
+            resetToolModes();
+            handlePdfUploadTrigger();
+          }}
+          onAddCamera={(id) => {
+            resetToolModes();
+            startCamera(id);
+          }}
           onTogglePen={handleTogglePen}
           penActive={editorState.penMode}
-          onToggleShapes={() => setIsShapeSelectorOpen(!isShapeSelectorOpen)}
+          onToggleShapes={() => {
+            const next = !isShapeSelectorOpen;
+            resetToolModes();
+            setIsShapeSelectorOpen(next);
+          }}
           shapesActive={isShapeSelectorOpen}
-          onToggleTable={() => setIsTableSelectorOpen(!isTableSelectorOpen)}
+          onToggleTable={() => {
+            const next = !isTableSelectorOpen;
+            resetToolModes();
+            setIsTableSelectorOpen(next);
+          }}
           tableActive={isTableSelectorOpen}
-          onAddSignature={() => setIsSignatureModalOpen(true)}
+          onAddSignature={() => {
+            resetToolModes();
+            setIsSignatureModalOpen(true);
+          }}
           onAddPage={handleAddPage}
           penSize={penSize}
           onUpdatePenSize={setPenSize}
+          templatesActive={isTemplateSelectorOpen}
         />
 
         {isShapeSelectorOpen && (
@@ -1136,6 +1177,11 @@ const App: React.FC = () => {
                     onTriggerElementImageUpload={handleImageUploadTrigger}
                     onTriggerCamera={startCamera}
                     penSize={penSize}
+                    onFinishAction={() => {
+                      if (editorState.eraserMode || editorState.penMode) {
+                        setEditorState(prev => ({ ...prev, eraserMode: false, penMode: false }));
+                      }
+                    }}
                   />
                   <div className="flex flex-col items-center gap-2 mt-4">
                     <div className="text-xs text-gray-400 font-medium uppercase tracking-widest">{translations[language].page} {page.pageNumber}</div>

@@ -17,6 +17,7 @@ interface ToolbarProps {
   shapesActive?: boolean;
   onToggleTable?: () => void;
   tableActive?: boolean;
+  templatesActive?: boolean;
   onAddSignature?: () => void;
   onAddPage?: () => void;
   penSize?: number;
@@ -36,6 +37,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
   shapesActive = false,
   onToggleTable,
   tableActive = false,
+  templatesActive = false,
   onAddSignature,
   onAddPage,
   penSize = 2,
@@ -47,7 +49,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
     {
       title: language === 'pt' ? 'Estrutura' : 'Structure',
       items: [
-        { id: 'layout', icon: <Layout size={18} />, label: t.resumeTemplates, action: () => onOpenTemplates && onOpenTemplates(), highlight: true },
+        { id: 'layout', icon: <Layout size={18} />, label: t.resumeTemplates, action: () => onOpenTemplates && onOpenTemplates(), highlight: templatesActive },
         { id: 'addPage', icon: <Plus size={18} />, label: language === 'pt' ? 'Nova Página' : 'Add Page', action: () => onAddPage && onAddPage() },
       ]
     },

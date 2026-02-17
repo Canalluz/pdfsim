@@ -25,6 +25,7 @@ interface EditorCanvasProps {
   brushSize?: { width: number; height: number };
   penSize?: number;
   isExporting?: boolean;
+  onFinishAction?: () => void;
 }
 
 const EditorCanvas: React.FC<EditorCanvasProps> = ({
@@ -46,6 +47,7 @@ const EditorCanvas: React.FC<EditorCanvasProps> = ({
   brushSize = { width: 120, height: 40 },
   penSize = 2,
   isExporting = false,
+  onFinishAction,
 }) => {
   const t = translations[language] || translations['pt'];
 
@@ -158,6 +160,7 @@ const EditorCanvas: React.FC<EditorCanvasProps> = ({
   const endDrawing = () => {
     if (isDrawing && drawCanvasRef.current && onUpdateDrawing) {
       onUpdateDrawing(page.id, drawCanvasRef.current.toDataURL('image/png'));
+      if (onFinishAction) onFinishAction();
     }
     setIsDrawing(false);
     lastPoint.current = null;
@@ -228,6 +231,7 @@ const EditorCanvas: React.FC<EditorCanvasProps> = ({
 
       const handleGlobalMouseUp = () => {
         setErasing(null);
+        if (onFinishAction) onFinishAction();
         window.removeEventListener('mousemove', handleGlobalMouseMove);
         window.removeEventListener('mouseup', handleGlobalMouseUp);
       };
@@ -578,21 +582,29 @@ const EditorCanvas: React.FC<EditorCanvasProps> = ({
                     clipPath: el.style.clipPath
                   }}
                 >
-                  {selectedElementId === el.id && !el.style.background && !isExporting && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onTriggerElementImageUpload?.(el.id);
-                      }}
-                      className="group/add p-3 bg-white/90 hover:bg-white rounded-full shadow-lg border border-indigo-100 transition-all transform hover:scale-110 flex items-center gap-2"
-                      title={t.insertWithPhoto}
-                    >
-                      <div className="relative">
-                        <ImageIcon size={20} className="text-indigo-600" />
-                        <Plus size={10} className="absolute -top-1 -right-1 text-indigo-700 bg-white rounded-full border border-indigo-200" />
-                      </div>
-                      <span className="text-[10px] font-bold text-indigo-700 pr-1">{t.insertWithPhoto}</span>
-                    </button>
+                  {el.content && el.content.startsWith('data:image/') ? (
+                    <img
+                      src={el.content}
+                      alt="Shape Content"
+                      className="w-full h-full object-cover pointer-events-none"
+                    />
+                  ) : (
+                    selectedElementId === el.id && !el.style.background && !isExporting && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onTriggerElementImageUpload?.(el.id);
+                        }}
+                        className="group/add p-3 bg-white/90 hover:bg-white rounded-full shadow-lg border border-indigo-100 transition-all transform hover:scale-110 flex items-center gap-2"
+                        title={t.insertWithPhoto}
+                      >
+                        <div className="relative">
+                          <ImageIcon size={20} className="text-indigo-600" />
+                          <Plus size={10} className="absolute -top-1 -right-1 text-indigo-700 bg-white rounded-full border border-indigo-200" />
+                        </div>
+                        <span className="text-[10px] font-bold text-indigo-700 pr-1">{t.insertWithPhoto}</span>
+                      </button>
+                    )
                   )}
                 </div>
               )}
