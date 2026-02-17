@@ -127,6 +127,10 @@ const App: React.FC = () => {
   useEffect(() => {
     const query = new URLSearchParams(window.location.search);
     if (query.get('payment_success')) {
+      // Prevent loop if effect re-runs
+      if (sessionStorage.getItem('pdfsim_payment_handled')) return;
+      sessionStorage.setItem('pdfsim_payment_handled', 'true');
+
       localStorage.setItem('is_premium_unlocked', 'true');
       setShowSuccessOverlay(true);
       window.history.replaceState({}, document.title, window.location.pathname);
@@ -205,6 +209,8 @@ const App: React.FC = () => {
           await html2pdf().from(exportContainer).set(opt).save();
 
           setExportStatus(language === 'pt' ? 'Pronto!' : 'Ready!');
+          // Close success overlay after a successful auto-export as well
+          setTimeout(() => setShowSuccessOverlay(false), 2000);
           localStorage.removeItem('is_premium_unlocked');
           localStorage.removeItem('pendingExportMetadata');
 
@@ -225,6 +231,7 @@ const App: React.FC = () => {
 
       // Handle manual trigger from overlay
       const handleManualDownload = () => {
+        setShowSuccessOverlay(false);
         runExport();
       };
       window.addEventListener('trigger-premium-export', handleManualDownload);
