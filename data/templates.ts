@@ -241,9 +241,9 @@ export const getTemplates = (lang: Language = 'pt'): Template[] => {
                 createText('lang', lang === 'pt' ? '• Português (Nativo)\n• Inglês (Fluente)' : lang === 'es' ? '• Portugués (Nativo)\n• Inglés (Fluente)' : '• Portuguese (Native)\n• English (Fluent)', 20, 620, 9, 'normal', '#e2e8f0', 140),
 
                 // Main Content
-                createText('name', lang === 'pt' ? '[SEU NOME COMPLETO]' : lang === 'es' ? '[SU NOMBRE COMPLETO]' : '[YOUR FULL NAME]', 210, 40, 26, 'bold', '#0d1b2a', 350, 'left', true),
-                createText('role', lang === 'pt' ? '[Sua Especialidade / Cargo]' : lang === 'es' ? '[Su Especialidad / Cargo]' : '[Your Specialty / Role]', 210, 75, 12, 'bold', '#415a77', 350, 'left', true),
-                createText('tagline', lang === 'pt' ? '> [Descreva sua missão profissional em uma frase curta]' : '> [Describe your professional mission in one short sentence]', 210, 95, 10, 'italic', '#778da9', 350, 'left', true),
+                createText('name', lang === 'pt' ? '[SEU NOME COMPLETO]' : lang === 'es' ? '[SU NOMBRE COMPLETO]' : '[YOUR FULL NAME]', 210, 30, 26, 'bold', '#0d1b2a', 350, 'left', true),
+                createText('role', lang === 'pt' ? '[Sua Especialidade / Cargo]' : lang === 'es' ? '[Su Especialidad / Cargo]' : '[Your Specialty / Role]', 210, 80, 12, 'bold', '#415a77', 350, 'left', true),
+                createText('tagline', lang === 'pt' ? '> [Descreva sua missão profissional em uma frase curta]' : '> [Describe your professional mission in one short sentence]', 210, 105, 10, 'italic', '#778da9', 350, 'left', true),
 
                 createShape('sep-1', 210, 115, 350, 1, '#e0e1dd'),
 
@@ -286,10 +286,10 @@ export const getTemplates = (lang: Language = 'pt'): Template[] => {
                 { id: 'top-bar', type: 'shape', x: 0, y: 0, width: 595, height: 15, content: '', isBackground: true, locked: true, style: { backgroundColor: '#1a237e', borderWidth: 0, opacity: 1 } },
 
                 // Name & Title
-                createText('name', lang === 'pt' ? '[SEU NOME COMPLETO]' : lang === 'es' ? '[SU NOMBRE COMPLETO]' : '[YOUR FULL NAME]', 40, 45, 24, 'bold', '#1a237e', 400, 'left', true),
+                createText('name', lang === 'pt' ? '[SEU NOME COMPLETO]' : lang === 'es' ? '[SU NOMBRE COMPLETO]' : '[YOUR FULL NAME]', 40, 35, 24, 'bold', '#1a237e', 400, 'left', true),
                 createText('creds', 'PhD, MSc, MBA', 40, 80, 12, 'bold', '#283593', 400, 'left', true),
-                createText('role', lang === 'pt' ? '[Sua Especialidade / Cargo]' : lang === 'es' ? '[Su Especialidad / Cargo]' : '[Your Specialty / Role]', 40, 100, 12, 'normal', '#333333', 400, 'left', true),
-                createText('inst', lang === 'pt' ? '[Nome da Instituição Atual]' : lang === 'es' ? '[Nombre de la Institución Actual]' : '[Current Institution Name]', 40, 118, 11, 'italic', '#555555', 400),
+                createText('role', lang === 'pt' ? '[Sua Especialidade / Cargo]' : lang === 'es' ? '[Su Especialidad / Cargo]' : '[Your Specialty / Role]', 40, 105, 12, 'normal', '#333333', 400, 'left', true),
+                createText('inst', lang === 'pt' ? '[Nome da Instituição Atual]' : lang === 'es' ? '[Nombre de la Institución Actual]' : '[Current Institution Name]', 40, 125, 11, 'italic', '#555555', 400),
 
                 // Contact Details
                 createText('contact', lang === 'pt' ? '📧 seu@email.edu | 📍 Sua Cidade, UF | 🔗 lattes.cnpq.br/perfil' : '📧 your@email.edu | 📍 Your City, State | 🔗 linkedin.com/in/profile', 40, 145, 10, 'normal', '#333333', 515),
@@ -346,8 +346,8 @@ export const getTemplates = (lang: Language = 'pt'): Template[] => {
                 },
 
                 // Name (Black) & Role (Professional Blue)
-                createText('name', lang === 'pt' ? '[SEU NOME COMPLETO]' : lang === 'es' ? '[SU NOMBRE COMPLETO]' : '[YOUR FULL NAME]', 40, 40, 26, 'bold', '#000000', 380, 'left', true),
-                createText('role', lang === 'pt' ? '[SUA PROFISSÃO / CARGO]' : lang === 'es' ? '[SU PROFESIÓN / CARGO]' : '[YOUR PROFESSION / ROLE]', 40, 75, 13, 'bold', '#1e3a8a', 380, 'left', true),
+                createText('name', lang === 'pt' ? '[SEU NOME COMPLETO]' : lang === 'es' ? '[SU NOMBRE COMPLETO]' : '[YOUR FULL NAME]', 40, 30, 26, 'bold', '#000000', 380, 'left', true),
+                createText('role', lang === 'pt' ? '[SUA PROFISSÃO / CARGO]' : lang === 'es' ? '[SU PROFESIÓN / CARGO]' : '[YOUR PROFESSION / ROLE]', 40, 80, 13, 'bold', '#1e3a8a', 380, 'left', true),
 
                 // Contact bar - ATS-friendly format
                 { id: 'contact-bg', type: 'shape', x: 0, y: 125, width: 595, height: 35, content: '', isBackground: true, locked: true, style: { backgroundColor: '#f1f5f9', borderRadius: 0, opacity: 1 } },
@@ -526,9 +526,9 @@ export const getTemplates = (lang: Language = 'pt'): Template[] => {
                 // --- Main Section (White) ---
 
                 // Name & Role - At the Top Main area for visibility
-                createText('name', lang === 'pt' ? '[SEU NOME COMPLETO]' : '[YOUR FULL NAME]', 240, 40, 26, 'bold', '#111827', 315, 'left', true),
-                createText('role', lang === 'pt' ? '[SUA PROFISSÃO OU CARGO ATUAL]' : '[YOUR PROFESSION OR ROLE]', 240, 75, 12, 'bold', '#1e40af', 315, 'left', true),
-                { id: 'header-divider', type: 'shape', x: 240, y: 100, width: 315, height: 1, content: '', style: { backgroundColor: '#e5e7eb', borderRadius: 0 } },
+                createText('name', lang === 'pt' ? '[SEU NOME COMPLETO]' : '[YOUR FULL NAME]', 240, 30, 26, 'bold', '#111827', 330, 'left', true),
+                createText('role', lang === 'pt' ? '[SUA PROFISSÃO OU CARGO ATUAL]' : '[YOUR PROFESSION OR ROLE]', 240, 85, 12, 'bold', '#1e40af', 330, 'left', true),
+                { id: 'header-divider', type: 'shape', x: 240, y: 110, width: 315, height: 1, content: '', style: { backgroundColor: '#e5e7eb', borderRadius: 0 } },
 
                 // Summary
                 createText('summary-h', lang === 'pt' ? 'PERFIL PROFISSIONAL' : 'PROFESSIONAL SUMMARY', 240, 130, 13, 'bold', '#1e3a8a', 315),
@@ -584,8 +584,8 @@ export const getTemplates = (lang: Language = 'pt'): Template[] => {
                 },
 
                 // Name and Title - Clear hierarchy            // Header elements with White background
-                createText('name', lang === 'pt' ? '[SEU NOME COMPLETO]' : lang === 'es' ? '[SU NOMBRE COMPLETO]' : '[YOUR FULL NAME]', 40, 45, 26, 'bold', '#000000', 380, 'left', true),
-                createText('role', lang === 'pt' ? '[SUA ÁREA / ESPECIALIDADE]' : lang === 'es' ? '[SU ÁREA / ESPECIALIDAD]' : '[YOUR ROLE / SPECIALTY]', 40, 80, 12, 'bold', '#1e3a8a', 380, 'left', true),
+                createText('name', lang === 'pt' ? '[SEU NOME COMPLETO]' : lang === 'es' ? '[SU NOMBRE COMPLETO]' : '[YOUR FULL NAME]', 40, 35, 26, 'bold', '#000000', 380, 'left', true),
+                createText('role', lang === 'pt' ? '[SUA ÁREA / ESPECIALIDADE]' : lang === 'es' ? '[SU ÁREA / ESPECIALIDAD]' : '[YOUR ROLE / SPECIALTY]', 40, 85, 12, 'bold', '#1e3a8a', 380, 'left', true),
 
                 // Contact bar - ATS-friendly format
                 { id: 'contact-bg', type: 'shape', x: 0, y: 125, width: 595, height: 35, content: '', isBackground: true, locked: true, style: { backgroundColor: '#f1f5f9', borderRadius: 0, opacity: 1 } },
