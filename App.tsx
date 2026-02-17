@@ -87,6 +87,7 @@ const App: React.FC = () => {
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
   const [exportStatus, setExportStatus] = useState<string | null>(null);
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
+  const [showSuccessOverlay, setShowSuccessOverlay] = useState(false);
 
   // Word Conversion States
   const [isConverting, setIsConverting] = useState(false);
@@ -101,6 +102,7 @@ const App: React.FC = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [showCamera, setShowCamera] = useState(false);
   const activeCameraElementId = useRef<string | null>(null);
+  const isExportInProgress = useRef(false);
 
   // Auto-save editor state to localStorage (with error handling for quota)
   useEffect(() => {
@@ -126,9 +128,12 @@ const App: React.FC = () => {
     const query = new URLSearchParams(window.location.search);
     if (query.get('payment_success')) {
       localStorage.setItem('is_premium_unlocked', 'true');
+      setShowSuccessOverlay(true);
       window.history.replaceState({}, document.title, window.location.pathname);
 
       const runExport = async () => {
+        if (isExportInProgress.current) return;
+        isExportInProgress.current = true;
         try {
           setExportStatus(language === 'pt' ? 'Pagamento confirmado! Preparando modo de impressão...' : 'Payment confirmed! Preparing print mode...');
           window.scrollTo(0, 0);
@@ -209,14 +214,27 @@ const App: React.FC = () => {
             setIsExportMode(false);
           }, 2000);
         } catch (err: any) {
-          console.error('Auto-export failed:', err);
+          console.error('Export failed:', err);
           setExportStatus(null);
           alert(`Erro ao gerar PDF: ${err.message || 'Erro desconhecido'}`);
+        } finally {
           setIsExportMode(false);
+          isExportInProgress.current = false;
         }
       };
 
+      // Handle manual trigger from overlay
+      const handleManualDownload = () => {
+        runExport();
+      };
+      window.addEventListener('trigger-premium-export', handleManualDownload);
+
+      // Auto-trigger once
       runExport();
+
+      return () => {
+        window.removeEventListener('trigger-premium-export', handleManualDownload);
+      };
     }
   }, [language]);
 
@@ -1051,12 +1069,61 @@ const App: React.FC = () => {
             className="flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-bold text-slate-400 hover:text-white hover:bg-slate-800 transition-all border border-transparent"
           >
             <Upload size={18} />
-            {translations[language].insertPdf}
           </button>
         </div>
       </header>
 
-      <div className="flex flex-1 overflow-hidden">
+      {showSuccessOverlay && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-300">
+          <div className="bg-white rounded-2xl p-8 max-w-md w-full mx-4 shadow-2xl transform animate-in zoom-in-95 duration-300 flex flex-col items-center text-center">
+            <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mb-6">
+              <Zap className="w-10 h-10 text-green-600 fill-green-600" />
+            </div>
+
+            <h2 className="text-3xl font-bold text-gray-900 mb-2">
+              {language === 'pt' ? 'Pagamento Confirmado!' : 'Payment Confirmed!'}
+            </h2>
+            <p className="text-gray-600 mb-8">
+              {language === 'pt'
+                ? 'Seu currículo premium agora está pronto para download. Clique no botão abaixo para baixar o seu PDF.'
+                : 'Your premium resume is now ready for download. Click the button below to download your PDF.'}
+            </p>
+
+            <div className="flex flex-col w-full gap-3">
+              <button
+                onClick={() => {
+                  const query = new URLSearchParams(window.location.search);
+                  // Trigger the export logic (runExport is inside an effect, so we might need a separate trigger)
+                  // For now, let's just trigger the global export effect by setting exportStatus
+                  // Or better, let's make runExport accessible or use a separate state trigger
+                  window.dispatchEvent(new CustomEvent('trigger-premium-export'));
+                }}
+                className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 px-6 rounded-xl shadow-lg hover:shadow-xl transition-all flex items-center justify-center gap-2 group"
+              >
+                <Download className="w-6 h-6 group-hover:scale-110 transition-transform" />
+                {language === 'pt' ? 'Baixar PDF Agora' : 'Download PDF Now'}
+              </button>
+
+              <button
+                onClick={() => setShowSuccessOverlay(false)}
+                className="w-full text-gray-500 hover:text-gray-700 font-medium py-2 transition-colors"
+              >
+                {language === 'pt' ? 'Fechar' : 'Close'}
+              </button>
+            </div>
+
+            <div className="mt-8 pt-6 border-t border-gray-100 w-full">
+              <p className="text-xs text-center text-gray-400">
+                {language === 'pt'
+                  ? 'Dica: Se o download não iniciar automaticamente, verifique seus bloqueadores de pop-up.'
+                  : 'Tip: If the download doesn\'t start automatically, check your pop-up blockers.'}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="flex h-screen overflow-hidden">
         <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleImageFileChange} />
         <input type="file" ref={pdfInputRef} className="hidden" accept="application/pdf" onChange={handlePdfFileChange} />
         <input type="file" ref={wordInputRef} className="hidden" accept=".docx" onChange={handleWordFileChange} />
