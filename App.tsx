@@ -702,13 +702,19 @@ const App: React.FC = () => {
       await saveToIndexedDB('pdfsim_export_backup', editorState);
 
       // Redirect directly to Stripe Payment Link (Professional Architecture)
-      const stripeLink = import.meta.env.VITE_STRIPE_PAYMENT_LINK;
+      const stripeLink = import.meta.env.VITE_STRIPE_PAYMENT_LINK || (process.env as any).VITE_STRIPE_PAYMENT_LINK;
+
+      console.log('Stripe Link Detection:', {
+        meta: !!import.meta.env.VITE_STRIPE_PAYMENT_LINK,
+        process: !!(process.env as any).VITE_STRIPE_PAYMENT_LINK
+      });
+
       if (stripeLink) {
         window.location.href = stripeLink;
       } else {
         throw new Error(language === 'pt'
-          ? 'Link de pagamento não configurado.'
-          : 'Payment link not configured.');
+          ? 'Link de pagamento não configurado no .env (VITE_STRIPE_PAYMENT_LINK).'
+          : 'Payment link not configured in .env (VITE_STRIPE_PAYMENT_LINK).');
       }
 
     } catch (err: any) {
