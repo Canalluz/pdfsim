@@ -99,20 +99,27 @@ const Toolbar: React.FC<ToolbarProps> = ({
                 <div key={item.id || idx}>
                   <button
                     onClick={item.action}
-                    className={`w-full group flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 border ${item.highlight
-                      ? item.id === 'layout'
-                        ? 'bg-gradient-to-br from-amber-500 to-orange-600 border-amber-400/30 text-white shadow-lg shadow-amber-600/30 scale-[1.05]'
-                        : 'bg-gradient-to-br from-indigo-600 to-violet-700 border-indigo-400/30 text-white shadow-lg shadow-indigo-600/20 scale-[1.02]'
-                      : 'bg-transparent border-transparent hover:bg-slate-900 text-slate-400 hover:text-slate-100'
+                    className={`w-full group flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 border ${item.id === 'layout'
+                        ? item.highlight
+                          ? 'bg-gradient-to-br from-amber-500 to-orange-600 border-amber-400/50 text-white shadow-[0_0_25px_rgba(245,158,11,0.4)] scale-[1.05]'
+                          : 'bg-amber-500/10 border-amber-500/20 text-amber-500 hover:bg-amber-500/20 hover:border-amber-500/40 shadow-[0_0_15px_rgba(245,158,11,0.1)]'
+                        : item.highlight
+                          ? 'bg-gradient-to-br from-indigo-600 to-violet-700 border-indigo-400/30 text-white shadow-lg shadow-indigo-600/20 scale-[1.02]'
+                          : 'bg-transparent border-transparent hover:bg-slate-900 text-slate-400 hover:text-slate-100'
                       }`}
                   >
-                    <div className={`p-1.5 rounded-lg transition-all duration-200 ${item.highlight
-                      ? item.id === 'layout' ? 'bg-white/20 text-white' : 'bg-white/10 text-white'
-                      : 'bg-slate-900 border border-slate-800 text-slate-500 group-hover:text-white group-hover:border-slate-700'}`}>
+                    <div className={`p-1.5 rounded-lg transition-all duration-200 ${item.id === 'layout'
+                        ? item.highlight ? 'bg-white/20 text-white' : 'bg-amber-500/20 text-amber-500 group-hover:bg-amber-500/30'
+                        : item.highlight
+                          ? 'bg-white/10 text-white'
+                          : 'bg-slate-900 border border-slate-800 text-slate-500 group-hover:text-white group-hover:border-slate-700'
+                      }`}>
                       {item.icon}
                     </div>
                     <div className="text-left flex-1">
-                      <span className="block text-[13px] font-semibold tracking-tight">{item.label}</span>
+                      <span className={`block text-[13px] font-bold tracking-tight ${item.id === 'layout' && !item.highlight ? 'text-amber-500/90' : ''}`}>
+                        {item.label}
+                      </span>
                     </div>
                   </button>
 
