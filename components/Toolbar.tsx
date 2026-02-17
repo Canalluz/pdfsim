@@ -43,97 +43,109 @@ const Toolbar: React.FC<ToolbarProps> = ({
 }) => {
   const t = translations[language];
 
-  const tools = [
-    { id: 'select', icon: <MousePointer2 size={20} />, label: t.select, action: () => { }, active: true },
-    { id: 'layout', icon: <Layout size={20} />, label: t.resumeTemplates, action: () => onOpenTemplates && onOpenTemplates(), highlight: true },
-    { separator: true },
-    { id: 'text', icon: <Type size={20} />, label: t.addText, action: () => onAddElement('text') },
-    { id: 'pen', icon: <Eraser size={20} />, label: t.eraser, action: () => onTogglePen && onTogglePen(), highlight: penActive, description: t.eraserDesc },
-    // Eraser removed
-    { separator: true },
-    { id: 'image', icon: <ImageIcon size={20} />, label: t.insertImage, action: () => onAddImage ? onAddImage() : onAddElement('image') },
-    { id: 'pdf', icon: <FileText size={20} />, label: t.insertPdf, action: () => onAddPdf ? onAddPdf() : {} },
-    { id: 'camera', icon: <Camera size={20} />, label: t.cameraPhotoTool, action: () => onAddCamera ? onAddCamera() : {} },
-    { id: 'signature', icon: <PenTool size={20} />, label: t.signature, action: () => onAddSignature && onAddSignature() },
-    { separator: true },
-    { id: 'shape', icon: <Square size={20} />, label: t.shapes, action: () => onToggleShapes && onToggleShapes(), highlight: shapesActive, description: t.shapesDesc },
-    { id: 'table', icon: <Table size={20} />, label: t.table, action: () => onToggleTable && onToggleTable(), highlight: tableActive, description: t.tableDesc },
-    { id: 'link', icon: <LinkIcon size={20} />, label: t.link, action: () => onAddElement('link') },
+  const toolGroups = [
+    {
+      title: language === 'pt' ? 'Estrutura' : 'Structure',
+      items: [
+        { id: 'layout', icon: <Layout size={18} />, label: t.resumeTemplates, action: () => onOpenTemplates && onOpenTemplates(), highlight: true },
+        { id: 'addPage', icon: <Plus size={18} />, label: language === 'pt' ? 'Nova Página' : 'Add Page', action: () => onAddPage && onAddPage() },
+      ]
+    },
+    {
+      title: language === 'pt' ? 'Conteúdo' : 'Content',
+      items: [
+        { id: 'text', icon: <Type size={18} />, label: t.addText, action: () => onAddElement('text') },
+        { id: 'image', icon: <ImageIcon size={18} />, label: t.insertImage, action: () => onAddImage ? onAddImage() : onAddElement('image') },
+        { id: 'pdf', icon: <FileText size={18} />, label: t.insertPdf, action: () => onAddPdf ? onAddPdf() : {} },
+        { id: 'camera', icon: <Camera size={18} />, label: t.cameraPhotoTool, action: () => onAddCamera ? onAddCamera() : {} },
+      ]
+    },
+    {
+      title: language === 'pt' ? 'Elementos & Design' : 'Elements & Design',
+      items: [
+        { id: 'shape', icon: <Square size={18} />, label: t.shapes, action: () => onToggleShapes && onToggleShapes(), highlight: shapesActive },
+        { id: 'table', icon: <Table size={18} />, label: t.table, action: () => onToggleTable && onToggleTable(), highlight: tableActive },
+        { id: 'signature', icon: <PenTool size={18} />, label: t.signature, action: () => onAddSignature && onAddSignature() },
+        { id: 'link', icon: <LinkIcon size={18} />, label: t.link, action: () => onAddElement('link') },
+      ]
+    },
+    {
+      title: language === 'pt' ? 'Ferramentas' : 'Tools',
+      items: [
+        { id: 'pen', icon: <Eraser size={18} />, label: t.eraser, action: () => onTogglePen && onTogglePen(), highlight: penActive, description: t.eraserDesc },
+      ]
+    }
   ];
 
   return (
-    <aside className="w-64 bg-slate-900 border-r border-slate-800 flex flex-col z-40 shadow-2xl">
-      <div className="p-4 border-b border-slate-800 bg-slate-900">
-        <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest">{t.toolsTitle}</h2>
+    <aside className="w-64 bg-slate-950 border-r border-slate-800/50 flex flex-col z-40 shadow-[10px_0_30px_rgba(0,0,0,0.3)]">
+      <div className="p-6 border-b border-slate-800/50 bg-slate-950/80 backdrop-blur-md">
+        <div className="flex items-center gap-2 mb-1">
+          <div className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse"></div>
+          <h2 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">{t.toolsTitle}</h2>
+        </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-3 space-y-2 custom-scrollbar">
-        {tools.map((tool, idx) => {
-          if (tool.separator) {
-            return <div key={`sep-${idx}`} className="h-px bg-slate-800 my-2" />;
-          }
+      <div className="flex-1 overflow-y-auto px-3 py-4 space-y-6 custom-scrollbar scroll-smooth">
+        {toolGroups.map((group, gIdx) => (
+          <div key={gIdx} className="space-y-2">
+            <h3 className="px-4 text-[9px] font-bold text-slate-500 uppercase tracking-widest mb-3 opacity-60">
+              {group.title}
+            </h3>
+            <div className="space-y-1">
+              {group.items.map((item: any, idx) => (
+                <div key={item.id || idx}>
+                  <button
+                    onClick={item.action}
+                    className={`w-full group flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 border ${item.highlight
+                      ? 'bg-gradient-to-br from-indigo-600 to-violet-700 border-indigo-400/30 text-white shadow-lg shadow-indigo-600/20 scale-[1.02]'
+                      : 'bg-transparent border-transparent hover:bg-slate-900 text-slate-400 hover:text-slate-100'
+                      }`}
+                  >
+                    <div className={`p-1.5 rounded-lg transition-all duration-200 ${item.highlight ? 'bg-white/10 text-white' : 'bg-slate-900 border border-slate-800 text-slate-500 group-hover:text-white group-hover:border-slate-700'}`}>
+                      {item.icon}
+                    </div>
+                    <div className="text-left flex-1">
+                      <span className="block text-[13px] font-semibold tracking-tight">{item.label}</span>
+                    </div>
+                  </button>
 
-          return (
-            <div key={tool.id || idx}>
-              <button
-                onClick={tool.action}
-                className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all border ${tool.highlight
-                  ? 'bg-gradient-to-r from-indigo-600 to-violet-600 border-transparent text-white shadow-lg shadow-indigo-500/20'
-                  : 'bg-transparent border-transparent hover:bg-slate-800 text-slate-300 hover:text-white'
-                  }`}
-              >
-                <div className={`p-2 rounded-md transition-colors ${tool.highlight ? 'bg-white/20 text-white' : 'bg-slate-800 text-slate-400 group-hover:text-white'}`}>
-                  {tool.icon}
+                  {/* Pen Size Options */}
+                  {item.id === 'pen' && penActive && (
+                    <div className="mx-2 mt-2 p-2 bg-slate-900/50 border border-slate-800 rounded-xl flex justify-around items-center animate-in fade-in slide-in-from-top-2">
+                      {[2, 6, 12].map((size) => (
+                        <button
+                          key={size}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onUpdatePenSize?.(size);
+                          }}
+                          className={`p-2 rounded-lg hover:bg-slate-800 transition-all ${penSize === size ? 'bg-indigo-600/20 ring-1 ring-indigo-500/50 scale-110' : ''}`}
+                        >
+                          <div
+                            className="bg-slate-300 rounded-full"
+                            style={{
+                              width: size === 2 ? 4 : size === 6 ? 8 : 12,
+                              height: size === 2 ? 4 : size === 6 ? 8 : 12,
+                              opacity: penSize === size ? 1 : 0.5
+                            }}
+                          />
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
-                <div className="text-left flex-1">
-                  <span className="block text-sm font-semibold tracking-wide">{tool.label}</span>
-                  {tool.description && <span className="block text-xs text-slate-500 mt-0.5">{tool.description}</span>}
-                </div>
-              </button>
-
-              {/* Pen Size Options - Only show when pen is active and it is the pen tool */}
-              {tool.id === 'pen' && penActive && (
-                <div className="mx-4 mt-2 p-2 bg-slate-800 rounded-lg border border-slate-700 flex justify-between items-center animate-in fade-in slide-in-from-top-2">
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onUpdatePenSize?.(2);
-                    }}
-                    className={`p-2 rounded hover:bg-slate-700 transition-colors ${penSize === 2 ? 'bg-indigo-600 ring-2 ring-indigo-400' : ''}`}
-                    title={language === 'pt' ? 'Fino' : 'Small'}
-                  >
-                    <div className="w-1.5 h-1.5 rounded-full bg-white" />
-                  </button>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onUpdatePenSize?.(6);
-                    }}
-                    className={`p-2 rounded hover:bg-slate-700 transition-colors ${penSize === 6 ? 'bg-indigo-600 ring-2 ring-indigo-400' : ''}`}
-                    title={language === 'pt' ? 'Médio' : 'Medium'}
-                  >
-                    <div className="w-2.5 h-2.5 rounded-full bg-white" />
-                  </button>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onUpdatePenSize?.(12);
-                    }}
-                    className={`p-2 rounded hover:bg-slate-700 transition-colors ${penSize === 12 ? 'bg-indigo-600 ring-2 ring-indigo-400' : ''}`}
-                    title={language === 'pt' ? 'Grosso' : 'Large'}
-                  >
-                    <div className="w-4 h-4 rounded-full bg-white" />
-                  </button>
-                </div>
-              )}
+              ))}
             </div>
-          );
-        })}
+          </div>
+        ))}
       </div>
 
-      <div className="p-4 border-t border-slate-800 bg-slate-900/50">
-        <div className="text-xs text-slate-500 text-center font-medium">
-          {t.dragNote}
+      <div className="p-4 border-t border-slate-800/50 bg-slate-950/50 backdrop-blur-sm">
+        <div className="px-3 py-2 bg-slate-900/30 rounded-lg border border-slate-800/50">
+          <p className="text-[10px] text-slate-500 text-center leading-relaxed italic opacity-70">
+            {t.dragNote}
+          </p>
         </div>
       </div>
     </aside>

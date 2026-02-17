@@ -24,6 +24,7 @@ interface EditorCanvasProps {
   onTriggerCamera?: (id: string) => void;
   brushSize?: { width: number; height: number };
   penSize?: number;
+  isExporting?: boolean;
 }
 
 const EditorCanvas: React.FC<EditorCanvasProps> = ({
@@ -44,6 +45,7 @@ const EditorCanvas: React.FC<EditorCanvasProps> = ({
   onTriggerCamera,
   brushSize = { width: 120, height: 40 },
   penSize = 2,
+  isExporting = false,
 }) => {
   const t = translations[language] || translations['pt'];
 
@@ -332,7 +334,7 @@ const EditorCanvas: React.FC<EditorCanvasProps> = ({
 
   return (
     <div
-      className="relative flex items-center justify-center p-12"
+      className={isExporting ? "relative" : "relative flex items-center justify-center p-12"}
       onClick={() => !isCropping && onSelectElement(null)}
     >
       <div
@@ -346,7 +348,7 @@ const EditorCanvas: React.FC<EditorCanvasProps> = ({
       >
         <div
           ref={canvasRef}
-          className="relative pdf-page bg-white shadow-2xl transition-transform origin-top-left border border-gray-300"
+          className={`relative pdf-page bg-white transition-transform origin-top-left ${isExporting ? '' : 'shadow-2xl border border-gray-300'}`}
           style={{
             width: `${BASE_WIDTH}px`,
             height: `${BASE_HEIGHT}px`,
@@ -400,7 +402,7 @@ const EditorCanvas: React.FC<EditorCanvasProps> = ({
               key={el.id}
               onMouseDown={(e) => !eraserMode && handleMouseDown(e, el)}
               onClick={(e) => e.stopPropagation()}
-              className={`absolute transition-shadow ${eraserMode
+              className={`absolute transition-shadow ${eraserMode || isExporting
                 ? 'pointer-events-none' // Background images and all elements during eraser mode don't capture clicks
                 : selectedElementId === el.id && !isCropping
                   ? 'ring-2 ring-indigo-500 shadow-lg cursor-move'
@@ -422,7 +424,7 @@ const EditorCanvas: React.FC<EditorCanvasProps> = ({
               }}
             >
               {el.type === 'text' && (
-                selectedElementId === el.id ? (
+                (selectedElementId === el.id && !isExporting) ? (
                   <textarea
                     autoFocus
                     placeholder={t.clickToEdit || 'Clique para editar...'}
@@ -434,12 +436,23 @@ const EditorCanvas: React.FC<EditorCanvasProps> = ({
                       const target = e.target;
                       const originalHeight = target.style.height;
                       target.style.height = 'auto';
-                      const newHeight = Math.max(24, target.scrollHeight + 2);
+                      const measuredHeight = Math.max(24, target.scrollHeight + 2);
                       target.style.height = originalHeight;
 
-                      // Use a larger delta (2px) to prevent tiny rounding jitter from shifting layout
-                      if (Math.abs(newHeight - el.height) > 2.5) {
-                        onUpdateElement(el.id, { height: newHeight });
+                      const delta = measuredHeight - el.height;
+                      if (Math.abs(delta) > 2.5) {
+                        onUpdateElement(el.id, { height: measuredHeight });
+
+                        // PUSH LOGIC: Shift elements below this one
+                        const elementsBelow = page.elements.filter(other =>
+                          other.id !== el.id &&
+                          other.y > el.y &&
+                          Math.abs(other.x - el.x) < 50
+                        );
+
+                        elementsBelow.forEach(other => {
+                          onUpdateElement(other.id, { y: other.y + delta });
+                        });
                       }
                     }}
                     onFocus={(e) => {
@@ -449,8 +462,21 @@ const EditorCanvas: React.FC<EditorCanvasProps> = ({
                       const target = e.target;
                       // Don't auto-update height on focus unless it's genuinely overflowed
                       if (target.scrollHeight > el.height + 2) {
-                        const newHeight = Math.max(24, target.scrollHeight + 2);
-                        onUpdateElement(el.id, { height: newHeight });
+                        const measuredHeight = Math.max(24, target.scrollHeight + 2);
+                        const delta = measuredHeight - el.height;
+
+                        onUpdateElement(el.id, { height: measuredHeight });
+
+                        // Push elements on focus as well
+                        const elementsBelow = page.elements.filter(other =>
+                          other.id !== el.id &&
+                          other.y > el.y &&
+                          Math.abs(other.x - el.x) < 50
+                        );
+
+                        elementsBelow.forEach(other => {
+                          onUpdateElement(other.id, { y: other.y + delta });
+                        });
                       }
                     }}
                     className="w-full h-full resize-none outline-none bg-transparent overflow-hidden"
@@ -552,7 +578,7 @@ const EditorCanvas: React.FC<EditorCanvasProps> = ({
                     clipPath: el.style.clipPath
                   }}
                 >
-                  {selectedElementId === el.id && !el.style.background && (
+                  {selectedElementId === el.id && !el.style.background && !isExporting && (
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
@@ -573,7 +599,7 @@ const EditorCanvas: React.FC<EditorCanvasProps> = ({
 
               {el.type === 'smart-element' && (
                 <div
-                  className="w-full h-auto"
+                  className="w-full h-full"
                   style={{
                     opacity: el.style.opacity,
                     borderRadius: el.style.borderRadius,
@@ -586,8 +612,8 @@ const EditorCanvas: React.FC<EditorCanvasProps> = ({
                     textAlign: el.style.textAlign,
                     lineHeight: el.style.lineHeight || 1.2,
                     maxHeight: '100%',
-                    overflow: el.content === 'ProfessionalPhoto' ? 'hidden' : 'visible',
-                    overflowY: el.content === 'ProfessionalPhoto' ? 'hidden' : 'auto'
+                    overflow: el.content === 'ProfessionalPhoto' ? 'visible' : 'visible',
+                    overflowY: el.content === 'ProfessionalPhoto' ? 'visible' : 'auto'
                   }}
                 >
                   {el.content === 'ProfessionalPhoto' && (
@@ -597,8 +623,10 @@ const EditorCanvas: React.FC<EditorCanvasProps> = ({
                       data={el.componentData}
                       userImage={el.componentData?.userImage}
                       onUpdate={(newData) => onUpdateElement(el.id, { componentData: newData })}
+                      onUpdateElement={onUpdateElement}
                       onTriggerImageUpload={onTriggerElementImageUpload}
                       onTriggerCamera={onTriggerCamera}
+                      isExporting={isExporting}
                     />
                   )}
                   {el.content === 'ResumeSection' && (
@@ -614,12 +642,28 @@ const EditorCanvas: React.FC<EditorCanvasProps> = ({
                         // ONLY trigger if the content actually grew significantly beyond current 
                         // OR if it's the first time.
                         const isNew = lastHeight === undefined;
-                        const isSignificantGrowth = newHeight > currentHeight + 5;
-                        const isSignificantShrink = newHeight < lastHeight - 15; // Be more conservative with shrinking
+                        const isSignificantGrowth = newHeight > currentHeight + 2;
+                        const isSignificantShrink = newHeight < lastHeight - 10;
 
                         if (isNew || isSignificantGrowth || isSignificantShrink) {
+                          const delta = newHeight - currentHeight;
                           lastAutoHeights.current[el.id] = newHeight;
-                          onUpdateElement(el.id, { height: newHeight + 8 }); // Re-add the 1-line buffer here
+
+                          // 1. Update the self height
+                          onUpdateElement(el.id, { height: newHeight + 8 });
+
+                          // 2. PUSH LOGIC: Shift elements below this one
+                          // Find elements with same X range and Y > current Y
+                          const elementsBelow = page.elements.filter(other =>
+                            other.id !== el.id &&
+                            other.y > el.y &&
+                            // Sharing X overlap (roughly same column)
+                            Math.abs(other.x - el.x) < 50
+                          );
+
+                          elementsBelow.forEach(other => {
+                            onUpdateElement(other.id, { y: other.y + delta });
+                          });
                         }
                       }}
                       onTriggerImageUpload={onTriggerElementImageUpload}
@@ -686,8 +730,8 @@ const EditorCanvas: React.FC<EditorCanvasProps> = ({
                 </div>
               )}
 
-              {/* Selection Border - Only for non-locked elements */}
-              {selectedElementId === el.id && !el.locked && !(el.type === 'smart-element' && el.content === 'ProfessionalPhoto') && (
+              {/* Selection Border - Only for non-locked elements and not during export */}
+              {selectedElementId === el.id && !el.locked && !isExporting && !(el.type === 'smart-element' && el.content === 'ProfessionalPhoto') && (
                 <>
                   {/* Floating Toolbar for Text */}
                   {el.type === 'text' && (

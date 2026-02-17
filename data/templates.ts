@@ -681,7 +681,8 @@ export const getTemplates = (lang: Language = 'pt'): Template[] => {
                     310, 905, 9, 'normal', '#334155', 245),
 
             ].map(el => ({ ...el, style: { ...el.style, fontFamily: (el.style as any).fontFamily || '"Calibri", "Arial", sans-serif', lineHeight: 1.5 } } as EditorElement))
-        }
+        },
+
 
     ];
 };

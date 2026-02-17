@@ -11,6 +11,8 @@ export interface ExportLine {
     y: number;
     fontSize: number;
     fontWeight?: string;
+    fontFamily?: string;
+    fontStyle?: string;
     color?: string;
 }
 
@@ -44,69 +46,76 @@ export interface ExportPage {
 }
 
 /**
- * Export pages to a clean PDF
+ * Sanitize text to remove unsupported characters (like emojis)
+ * Standard PDF fonts only support WinAnsi encoding
  */
+function sanitizeText(text: string): string {
+    return text.replace(/[^\x00-\x7F\xA0-\xFF]/g, ' ').trim();
+}
+
 export async function exportToPDF(pages: ExportPage[]): Promise<Uint8Array> {
     const pdfDoc = await PDFDocument.create();
 
-    // Embed fonts
-    const helvetica = await pdfDoc.embedFont(StandardFonts.Helvetica);
-    const helveticaBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+    // 1. Embed ALL Standard Fonts for full design support
+    const fonts: Record<string, any> = {};
+    try {
+        // Helvetica (Sans-Serif)
+        fonts['helvetica'] = await pdfDoc.embedFont(StandardFonts.Helvetica);
+        fonts['helvetica-bold'] = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+        fonts['helvetica-italic'] = await pdfDoc.embedFont(StandardFonts.HelveticaOblique);
+        fonts['helvetica-bolditalic'] = await pdfDoc.embedFont(StandardFonts.HelveticaBoldOblique);
+
+        // Times Roman (Serif)
+        fonts['times'] = await pdfDoc.embedFont(StandardFonts.TimesRoman);
+        fonts['times-bold'] = await pdfDoc.embedFont(StandardFonts.TimesRomanBold);
+        fonts['times-italic'] = await pdfDoc.embedFont(StandardFonts.TimesRomanItalic);
+        fonts['times-bolditalic'] = await pdfDoc.embedFont(StandardFonts.TimesRomanBoldItalic);
+
+        // Courier (Monospace)
+        fonts['courier'] = await pdfDoc.embedFont(StandardFonts.Courier);
+        fonts['courier-bold'] = await pdfDoc.embedFont(StandardFonts.CourierBold);
+        fonts['courier-italic'] = await pdfDoc.embedFont(StandardFonts.CourierOblique);
+    } catch (e) {
+        console.error('Font embedding failed:', e);
+    }
 
     for (const pageData of pages) {
-        const page = pdfDoc.addPage([
-            pageData.width || 595, // A4 width in points
-            pageData.height || 842  // A4 height in points
-        ]);
+        let page;
+        try {
+            page = pdfDoc.addPage([pageData.width || 595, pageData.height || 842]);
+        } catch (pageErr) {
+            console.error('Error adding page:', pageErr);
+            continue;
+        }
 
         const { width, height } = page.getSize();
 
-        // Draw background image if provided
+        // (Background and Drawing layer logic remains same)
         if (pageData.backgroundImage) {
             try {
                 const imageBytes = await fetch(pageData.backgroundImage).then(res => res.arrayBuffer());
                 const isPng = pageData.backgroundImage.includes('image/png');
                 const image = isPng ? await pdfDoc.embedPng(imageBytes) : await pdfDoc.embedJpg(imageBytes);
-
                 const imgWidth = image.width;
                 const imgHeight = image.height;
-
-                // Calculate scale to fit (contain) - matching EditorCanvas object-contain
                 const scale = Math.min(width / imgWidth, height / imgHeight);
                 const drawnWidth = imgWidth * scale;
                 const drawnHeight = imgHeight * scale;
-
-                // Center the image
-                const x = (width - drawnWidth) / 2;
-                const y = (height - drawnHeight) / 2;
-
                 page.drawImage(image, {
-                    x,
-                    y,
+                    x: (width - drawnWidth) / 2,
+                    y: (height - drawnHeight) / 2,
                     width: drawnWidth,
                     height: drawnHeight
                 });
-            } catch (error) {
-                console.error('Error embedding background image:', error);
-            }
+            } catch (error) { console.error('BG Error', error); }
         }
 
-        // Draw drawing layer (pen/eraser) if provided
         if (pageData.drawingData) {
             try {
                 const imageBytes = await fetch(pageData.drawingData).then(res => res.arrayBuffer());
                 const image = await pdfDoc.embedPng(imageBytes);
-
-                page.drawImage(image, {
-                    x: 0,
-                    y: 0,
-                    width,
-                    height
-                });
-            } catch (error) {
-                console.error('Error embedding drawing layer:', error);
-                console.error('Error embedding drawing layer:', error);
-            }
+                page.drawImage(image, { x: 0, y: 0, width, height });
+            } catch (error) { console.error('Drawing Error', error); }
         }
 
         // Draw user images
@@ -114,13 +123,7 @@ export async function exportToPDF(pages: ExportPage[]): Promise<Uint8Array> {
             for (const imgData of pageData.images) {
                 try {
                     const imageBytes = await fetch(imgData.src).then(res => res.arrayBuffer());
-                    let image;
-                    if (imgData.src.includes('image/png')) {
-                        image = await pdfDoc.embedPng(imageBytes);
-                    } else {
-                        image = await pdfDoc.embedJpg(imageBytes);
-                    }
-
+                    const image = imgData.src.includes('image/png') ? await pdfDoc.embedPng(imageBytes) : await pdfDoc.embedJpg(imageBytes);
                     page.drawImage(image, {
                         x: imgData.x,
                         y: height - imgData.y - imgData.height,
@@ -129,28 +132,56 @@ export async function exportToPDF(pages: ExportPage[]): Promise<Uint8Array> {
                         opacity: imgData.opacity ?? 1,
                         rotate: imgData.rotation ? degrees(-imgData.rotation) : undefined
                     });
-                } catch (error) {
-                    console.error('Error embedding user image:', error);
-                }
+                } catch (error) { console.error('Img Error', error); }
             }
         }
 
         for (const line of pageData.lines) {
-            const font = line.fontWeight === 'bold' ? helveticaBold : helvetica;
+            // FONT SELECTION ENGINE
+            let fontKey = 'helvetica';
+            const fam = (line.fontFamily || '').toLowerCase();
+            const weight = (line.fontWeight || '').toLowerCase();
+            const style = (line.fontStyle || '').toLowerCase();
 
-            // Convert color if provided
-            let color = rgb(0, 0, 0); // Default black
-            if (line.color && line.color !== '#000000') {
-                const hex = line.color.replace('#', '');
-                const r = parseInt(hex.substr(0, 2), 16) / 255;
-                const g = parseInt(hex.substr(2, 2), 16) / 255;
-                const b = parseInt(hex.substr(4, 2), 16) / 255;
-                color = rgb(r, g, b);
+            // 1. Choose Base Family
+            if (fam.includes('times') || fam.includes('serif') || fam.includes('georgia') || fam.includes('cambria')) {
+                fontKey = 'times';
+            } else if (fam.includes('courier') || fam.includes('mono')) {
+                fontKey = 'courier';
             }
 
-            page.drawText(line.text, {
+            // 2. Add Weight/Style Modifiers
+            const isBold = weight === 'bold' || weight === '700' || weight === '800';
+            const isItalic = style === 'italic' || style === 'oblique';
+
+            if (isBold && isItalic && fonts[`${fontKey}-bolditalic`]) {
+                fontKey = `${fontKey}-bolditalic`;
+            } else if (isBold && fonts[`${fontKey}-bold`]) {
+                fontKey = `${fontKey}-bold`;
+            } else if (isItalic && fonts[`${fontKey}-italic`]) {
+                fontKey = `${fontKey}-italic`;
+            }
+
+            const font = fonts[fontKey] || fonts['helvetica'];
+
+            // COLOR ENGINE
+            let color = rgb(0, 0, 0);
+            if (line.color && line.color.startsWith('#')) {
+                try {
+                    const hex = line.color.replace('#', '');
+                    const r = parseInt(hex.substr(0, 2), 16) / 255;
+                    const g = parseInt(hex.substr(2, 2), 16) / 255;
+                    const b = parseInt(hex.substr(4, 2), 16) / 255;
+                    if (!isNaN(r) && !isNaN(g) && !isNaN(b)) color = rgb(r, g, b);
+                } catch (e) { console.warn('Color parse fail', line.color); }
+            }
+
+            const safeText = sanitizeText(line.text);
+            if (!safeText) continue;
+
+            page.drawText(safeText, {
                 x: line.x,
-                y: height - line.y - line.fontSize, // Convert from top-left to bottom-left origin
+                y: height - line.y - (line.fontSize * 0.8), // Better baseline alignment
                 size: line.fontSize,
                 font,
                 color
@@ -194,8 +225,14 @@ export function downloadPDF(pdfBytes: Uint8Array, filename: string = 'document.p
     const link = document.createElement('a');
     link.href = url;
     link.download = filename;
+    document.body.appendChild(link); // Required for Firefox
     link.click();
-    URL.revokeObjectURL(url);
+
+    // Clean up
+    setTimeout(() => {
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+    }, 100);
 }
 
 export default exportToPDF;

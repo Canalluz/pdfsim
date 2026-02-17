@@ -56,7 +56,20 @@ import SignatureModal from './components/SignatureModal';
 import { Language, translations } from './utils/i18n';
 
 const App: React.FC = () => {
-  const [editorState, setEditorState] = useState<EditorState>(INITIAL_STATE);
+  const [editorState, setEditorState] = useState<EditorState>(() => {
+    // Initial State Restoration from localStorage
+    const saved = localStorage.getItem('pdfsim_editor_state');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        // Basic validation of restored state
+        if (parsed && Array.isArray(parsed.pages)) return parsed;
+      } catch (e) {
+        console.warn('Failed to restore editor state:', e);
+      }
+    }
+    return INITIAL_STATE;
+  });
 
   const [isCropping, setIsCropping] = useState(false);
 
@@ -68,7 +81,10 @@ const App: React.FC = () => {
   const [isTableSelectorOpen, setIsTableSelectorOpen] = useState(false);
   const [isSignatureModalOpen, setIsSignatureModalOpen] = useState(false);
   const [penSize, setPenSize] = useState(2);
+  const [isExportMode, setIsExportMode] = useState(false);
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
+  const [exportStatus, setExportStatus] = useState<string | null>(null);
+  const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
 
   // Word Conversion States
   const [isConverting, setIsConverting] = useState(false);
@@ -77,798 +93,131 @@ const App: React.FC = () => {
 
   const currentPage = editorState.pages.find(p => p.id === editorState.currentPageId) || editorState.pages[0] || { id: 'temp-page', pageNumber: 1, elements: [] };
 
-  // Global Keyboard Shortcuts
-  React.useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // Check if delete key is pressed
-      if (e.key === 'Delete' || e.key === 'Backspace') {
-        // Ignore if user is typing in an input or textarea
-        const activeTag = document.activeElement?.tagName.toLowerCase();
-        if (activeTag === 'input' || activeTag === 'textarea') return;
-
-        if (editorState.selectedElementId) {
-          handleDeleteElement();
-        }
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [editorState.selectedElementId]);
-
-  const performReflow = useCallback((pages: PDFPage[]): PDFPage[] => {
-    if (pages.length === 0) return pages;
-
-    const PAGE_HEIGHT = 842;
-    const MARGIN_BOTTOM = 40;
-    const MARGIN_TOP = 50;
-
-    const backgroundElements = pages[0].elements.filter(el => el.isBackground);
-    const allContent: EditorElement[] = [];
-    pages.forEach((p, pIdx) => {
-      p.elements.filter(el => !el.isBackground).forEach(el => {
-        allContent.push({ ...el, y: (pIdx * PAGE_HEIGHT) + el.y });
-      });
-    });
-    allContent.sort((a, b) => a.y - b.y);
-
-    const headerElements = backgroundElements.filter(el => el.y < 250);
-    const topBackgroundHeight = headerElements.reduce((max, el) => Math.max(max, el.y + (el.height || 20)), 0);
-    const REFLOW_MARGIN_TOP = headerElements.length > 0 ? Math.max(MARGIN_TOP + 10, topBackgroundHeight + 5) : MARGIN_TOP;
-
-    const reflowedPages: PDFPage[] = [];
-    let virtualYOffset = 0;
-    let lastPIdx = -1;
-
-    allContent.forEach((el) => {
-      let vY = el.y + virtualYOffset;
-      let pIdx = Math.floor(vY / PAGE_HEIGHT);
-      let rY = vY % PAGE_HEIGHT;
-      const h = el.height || 20;
-
-      // Snapping Logic: If this element is pushed to next page OR starts a new page, 
-      // ensure it doesn't have a giant gap from the top header margin.
-      if (pIdx > lastPIdx || (pIdx > 0 && rY < REFLOW_MARGIN_TOP)) {
-        if (rY !== REFLOW_MARGIN_TOP) {
-          const shift = REFLOW_MARGIN_TOP - rY;
-          virtualYOffset += shift;
-          vY += shift;
-          rY = REFLOW_MARGIN_TOP;
-          pIdx = Math.floor(vY / PAGE_HEIGHT);
-        }
-      }
-
-      if (rY + h > PAGE_HEIGHT - MARGIN_BOTTOM) {
-        const nextV = (pIdx + 1) * PAGE_HEIGHT + REFLOW_MARGIN_TOP;
-        const shift = nextV - vY;
-        virtualYOffset += shift;
-        vY = nextV;
-        pIdx++;
-        rY = REFLOW_MARGIN_TOP;
-      }
-
-      while (reflowedPages.length <= pIdx) {
-        const idx = reflowedPages.length;
-        reflowedPages.push({
-          id: `reflow-page-${idx + 1}`,
-          pageNumber: idx + 1,
-          backgroundImage: pages[idx]?.backgroundImage,
-          elements: backgroundElements.map(bg => ({ ...bg, id: `${bg.id}-pg${idx + 1}` }))
-        });
-      }
-      reflowedPages[pIdx].elements.push({ ...el, y: rY });
-      lastPIdx = pIdx;
-    });
-
-    // Ensure we preserve all original pages if they exceed the content length
-    while (reflowedPages.length < pages.length) {
-      const idx = reflowedPages.length;
-      reflowedPages.push({
-        id: pages[idx].id, // Keep original ID if possible, or generate stable one
-        pageNumber: idx + 1,
-        backgroundImage: pages[idx]?.backgroundImage,
-        elements: backgroundElements.map(bg => ({ ...bg, id: `${bg.id}-pg${idx + 1}` }))
-      });
-    }
-
-    return reflowedPages.length > 0 ? reflowedPages : pages;
-  }, []);
-
-  const handleUpdateElement = useCallback((pageId: string, elementId: string, updates: Partial<EditorElement>) => {
-    setEditorState(prev => {
-      const pageIndex = prev.pages.findIndex(p => p.id === pageId);
-      if (pageIndex === -1) return prev;
-
-      const page = prev.pages[pageIndex];
-      const element = page.elements.find(el => el.id === elementId);
-      if (!element) return prev;
-
-      let newElements = page.elements.map(el => el.id === elementId ? { ...el, ...updates } : el);
-
-      // 1. Local Vertical Shifting
-      if (updates.height !== undefined && Math.abs(updates.height - (element.height || 0)) > 0.1) {
-        const diff = updates.height - (element.height || 0);
-        const thresholdY = (element.y || 0) + (element.height || 0);
-        newElements = newElements.map(el => {
-          if (el.id !== elementId && !el.isBackground && (el.y || 0) >= thresholdY - 5) {
-            return { ...el, y: (el.y || 0) + diff };
-          }
-          return el;
-        });
-      }
-
-      const updatedPages = prev.pages.map((p, idx) => idx === pageIndex ? { ...p, elements: newElements } : p);
-
-      // 2. Global Reflow Trigger Logic
-      const needsReflow = (updates.height !== undefined || updates.y !== undefined || updates.content !== undefined);
-      if (!needsReflow) return { ...prev, pages: updatedPages };
-
-      return { ...prev, pages: performReflow(updatedPages) };
-    });
-  }, []);
-
-  const handleUpdateDrawing = useCallback((pageId: string, dataUrl: string) => {
-    setEditorState(prev => ({
-      ...prev,
-      pages: prev.pages.map(p => p.id === pageId ? { ...p, drawingData: dataUrl } : p),
-      penMode: false,
-      eraserMode: false
-    }));
-  }, []);
-
-  const handleErase = useCallback((pageId: string, x: number, y: number, width: number, height: number) => {
-    setEditorState(prev => ({
-      ...prev,
-      pages: prev.pages.map(p =>
-        p.id === pageId
-          ? {
-            ...p,
-            elements: [
-              // Optimization: we could filter out fully contained elements here, 
-              // but for a brush-style eraser, it's safer to just overlay white patches
-              // to avoid flickering or accidental deletion of things the user just grazed.
-              ...p.elements,
-              {
-                id: `erase-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
-                type: 'shape',
-                x, y, width, height,
-                content: '',
-                locked: true,
-                style: { backgroundColor: '#FFFFFF', borderWidth: 0, opacity: 1 }
-              } as EditorElement
-            ]
-          }
-          : p
-      )
-    }));
-  }, []);
-
-
-
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pdfInputRef = useRef<HTMLInputElement>(null);
-  const [targetElementForImage, setTargetElementForImage] = useState<string | null>(null);
-  const [targetElementForCamera, setTargetElementForCamera] = useState<string | null>(null);
-
-  const handleImageUploadTrigger = (id?: string) => {
-    if (typeof id === 'string') setTargetElementForImage(id);
-    else setTargetElementForImage(null);
-    fileInputRef.current?.click();
-  };
-  const handlePdfUploadTrigger = () => pdfInputRef.current?.click();
-
-  const handleImageFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        if (e.target?.result) {
-          if (targetElementForImage) {
-            // Find current page to update
-            const pageId = editorState.pages.find(p => p.elements.some(el => el.id === targetElementForImage))?.id;
-            if (pageId) {
-              const el = editorState.pages.find(p => p.id === pageId)?.elements.find(el => el.id === targetElementForImage);
-              if (el?.type === 'smart-element') {
-                handleUpdateElement(pageId, targetElementForImage, {
-                  componentData: { ...el.componentData, userImage: e.target.result as string }
-                });
-              } else {
-                handleUpdateElement(pageId, targetElementForImage, {
-                  style: {
-                    ...el?.style,
-                    background: `url(${e.target.result}) center/cover no-repeat`,
-                    backgroundColor: 'transparent'
-                  }
-                });
-              }
-            }
-            setTargetElementForImage(null);
-          } else {
-            handleAddElement('image', e.target.result as string);
-          }
-        }
-      };
-      reader.readAsDataURL(file);
-    }
-    // Reset input
-    if (event.target) event.target.value = '';
-    // Clear target if cancelled
-    if (!file && targetElementForImage) setTargetElementForImage(null);
-  };
-
-  const handlePdfFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (file) {
-      try {
-        setIsConverting(true);
-
-        // Upload to backend and get session ID
-        const { uploadPDFToBackend, renderPdfPage } = await import('./utils/api');
-        const response = await uploadPDFToBackend(file);
-
-        // Render each page as background image (Hybrid Mode)
-        const pages: PDFPage[] = [];
-
-        for (let i = 0; i < response.pages.length; i++) {
-          const pageNum = i + 1;
-
-          // Render page as high-quality image
-          const pageRender = await renderPdfPage(response.sessionId, pageNum, 150);
-
-          pages.push({
-            id: `page-${pageNum}`,
-            pageNumber: pageNum,
-            backgroundImage: pageRender.image, // Base64 PNG
-            elements: [] // Start with empty overlay - user adds elements on top
-          });
-        }
-
-        if (pages.length > 0) {
-          setEditorState(prev => ({
-            ...prev,
-            pages: pages,
-            currentPageId: pages[0].id,
-            sessionId: response.sessionId,
-            eraserMode: false
-          }));
-        } else {
-          throw new Error("No pages extracted from PDF");
-        }
-
-      } catch (error) {
-        console.error("PDF Import failed:", error);
-        alert(translations[language].importError);
-      } finally {
-        setIsConverting(false);
-      }
-    }
-    if (event.target) event.target.value = '';
-  };
-
-  // Camera Logic
-  const [showCamera, setShowCamera] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [stream, setStream] = useState<MediaStream | null>(null);
+  const [showCamera, setShowCamera] = useState(false);
+  const activeCameraElementId = useRef<string | null>(null);
 
-  const startCamera = async (id?: string) => {
-    if (typeof id === 'string') setTargetElementForCamera(id);
-    else setTargetElementForCamera(null);
-    try {
-      const mediaStream = await navigator.mediaDevices.getUserMedia({ video: true });
-      setStream(mediaStream);
-      setShowCamera(true);
-      setTimeout(() => {
-        if (videoRef.current) {
-          videoRef.current.srcObject = mediaStream;
-          videoRef.current.play();
-        }
-      }, 100);
-    } catch (err) {
-      console.error("Camera error:", err);
-      alert(translations[language].cameraError);
-    }
-  };
+  // Auto-save editor state to localStorage
+  useEffect(() => {
+    const saveState = setTimeout(() => {
+      localStorage.setItem('pdfsim_editor_state', JSON.stringify(editorState));
+    }, 1000); // 1s debounce
+    return () => clearTimeout(saveState);
+  }, [editorState]);
 
-  const stopCamera = () => {
-    if (stream) {
-      stream.getTracks().forEach(track => track.stop());
-      setStream(null);
-    }
-    setShowCamera(false);
-  };
-
-  const capturePhoto = () => {
-    if (videoRef.current && canvasRef.current) {
-      const context = canvasRef.current.getContext('2d');
-      if (context) {
-        canvasRef.current.width = videoRef.current.videoWidth;
-        canvasRef.current.height = videoRef.current.videoHeight;
-        context.drawImage(videoRef.current, 0, 0);
-        const photoUrl = canvasRef.current.toDataURL('image/png');
-
-        if (targetElementForCamera) {
-          const pageId = editorState.pages.find(p => p.elements.some(el => el.id === targetElementForCamera))?.id;
-          if (pageId) {
-            const el = editorState.pages.find(p => p.id === pageId)?.elements.find(el => el.id === targetElementForCamera);
-            if (el?.type === 'smart-element') {
-              handleUpdateElement(pageId, targetElementForCamera, {
-                componentData: { ...el.componentData, userImage: photoUrl }
-              });
-            } else {
-              handleUpdateElement(pageId, targetElementForCamera, {
-                style: { ...el?.style, background: `url(${photoUrl}) center/cover no-repeat`, backgroundColor: 'transparent' }
-              });
-            }
-          }
-          setTargetElementForCamera(null);
-        } else {
-          handleAddElement('image', photoUrl);
-        }
-        stopCamera();
-      }
-    }
-  };
-
-  // Word Conversion Handlers
-  const handleConvertToWord = async () => {
-    if (!editorState.sessionId) {
-      alert(translations[language].importFirst);
-      return;
-    }
-
-    setIsConverting(true);
-    try {
-      const { convertPdfToWord } = await import('./utils/api');
-      const blob = await convertPdfToWord(editorState.sessionId);
-
-      // Download the Word file
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'documento_editavel.docx';
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      window.URL.revokeObjectURL(url);
-
-      // Show reimport button
-      setShowWordReimport(true);
-      alert(translations[language].wordDownloadSuccess);
-    } catch (error) {
-      console.error('Conversion error:', error);
-      alert(translations[language].wordConvertError);
-    } finally {
-      setIsConverting(false);
-    }
-  };
-
-  const handleWordReimport = () => {
-    wordInputRef.current?.click();
-  };
-
-  const handleWordFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (file) {
-      if (!file.name.endsWith('.docx')) {
-        alert(translations[language].selectDocx);
-        return;
-      }
-
-      setIsConverting(true);
-      try {
-        const { convertWordToPdf } = await import('./utils/api');
-        const response = await convertWordToPdf(file);
-
-        // Re-extract PDF with new content
-        const { extractPDF } = await import('./utils/pdfExtractor');
-
-        // Create a temporary file from the converted PDF
-        // Since we can't directly access the backend file, we'll reload from backend
-        // For now, we'll use the extraction result from the backend
-
-        setEditorState(prev => {
-          const newPages: PDFPage[] = [];
-
-          response.pages.forEach((backendPage: any, index: number) => {
-            const pageId = `page-${Date.now()}-${index}`;
-            const elements: EditorElement[] = [];
-
-            // Convert backend blocks to editor elements
-            backendPage.blocks.forEach((block: any, blockIdx: number) => {
-              elements.push({
-                id: `block-${pageId}-${blockIdx}`,
-                type: 'text',
-                x: block.x,
-                y: block.y,
-                width: block.width,
-                height: block.height,
-                content: block.text,
-                style: {
-                  opacity: 1,
-                  color: '#000000', // Default to black, can be updated based on block.color if available
-                  fontSize: block.size,
-                  fontFamily: block.font || 'Inter',
-                  backgroundColor: 'transparent',
-                }
-              });
-            });
-
-            newPages.push({
-              id: pageId,
-              pageNumber: index + 1,
-              elements: elements
-            });
-          });
-
-          return {
-            ...prev,
-            pages: newPages,
-            currentPageId: newPages[0]?.id || prev.currentPageId,
-            sessionId: response.sessionId,
-            eraserMode: false
-          };
-        });
-
-        setShowWordReimport(false);
-        alert(translations[language].wordImportSuccess);
-      } catch (error) {
-        console.error('Word import error:', error);
-        alert(translations[language].wordImportError);
-      } finally {
-        setIsConverting(false);
-      }
-    }
-    if (event.target) event.target.value = '';
-  };
-
-  const handleAddElement = useCallback((type: ElementType, content?: string, style?: any, tableData?: string[][], width?: number, height?: number) => {
-    setEditorState(prev => {
-      const newElement: EditorElement = {
-        id: `el-${Date.now()}`,
-        type,
-        x: 100,
-        y: 100,
-        width: width || (type === 'table' ? 400 : (type === 'text' ? 450 : 150)),
-        height: height || (type === 'table' ? 200 : (type === 'text' ? 50 : 150)),
-        content: content || (type === 'text' ? translations[language].newText : 'https://picsum.photos/400/300'),
-        tableData: tableData,
-        style: {
-          fontSize: type === 'table' ? 12 : 16,
-          fontFamily: 'Inter',
-          color: '#000000',
-          borderRadius: 0,
-          opacity: 1,
-          textAlign: 'left',
-          cellPadding: 8,
-          headerBackgroundColor: '#f8fafc',
-          borderColorTable: '#e2e8f0',
-          ...style
-        }
-      };
-
-
-      const updatedPages = prev.pages.map(page =>
-        page.id === prev.currentPageId
-          ? { ...page, elements: [...page.elements, newElement] }
-          : page
-      );
-
-      return {
-        ...prev,
-        eraserMode: false,
-        penMode: false,
-        selectedElementId: newElement.id,
-        pages: performReflow(updatedPages)
-      };
-    });
-    setIsShapeSelectorOpen(false);
-    setIsTableSelectorOpen(false);
-  }, [editorState.currentPageId, editorState.pages, language]);
-
-  const handleAddPage = useCallback(() => {
-    setEditorState(prev => {
-      const newPageNumber = prev.pages.length + 1;
-      const newPageId = `page-${newPageNumber}-${Date.now()}`;
-
-      // Identify background elements to copy (sidebars, headers, etc.)
-      const currentPage = prev.pages.find(p => p.id === prev.currentPageId) || prev.pages[0];
-      const backgroundElements = currentPage?.elements.filter(el => el.isBackground) || [];
-
-      // Create copies of background elements with new IDs
-      const copiedElements = backgroundElements.map(el => ({
-        ...el,
-        id: `${el.id}-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`
-      }));
-
-      return {
-        ...prev,
-        currentPageId: newPageId,
-        pages: [
-          ...prev.pages,
-          {
-            id: newPageId,
-            pageNumber: newPageNumber,
-            elements: copiedElements
-          }
-        ]
-      };
-    });
-  }, [editorState.currentPageId, editorState.pages]);
-
-  const handleDeleteElement = useCallback(() => {
-    if (!editorState.selectedElementId) return;
-    setEditorState(prev => {
-      const updatedPages = prev.pages.map(page =>
-        page.id === prev.currentPageId
-          ? { ...page, elements: page.elements.filter(el => el.id !== prev.selectedElementId) }
-          : page
-      );
-
-      return {
-        ...prev,
-        selectedElementId: null,
-        pages: performReflow(updatedPages)
-      };
-    });
-  }, [editorState.selectedElementId, editorState.currentPageId]);
-
-
-  // Stripe Payment Integration
-  const handleCheckoutAndExport = async () => {
-    if (isProcessingPayment) return;
-    setIsProcessingPayment(true);
-
-    try {
-      // 1. Save minimal state to localStorage (avoid base64 overflow)
-      const stateToSave = {
-        pageCount: editorState.pages.length,
-        timestamp: Date.now()
-      };
-      try {
-        localStorage.setItem('pendingExportState', JSON.stringify(stateToSave));
-      } catch (storageErr) {
-        console.warn('localStorage save failed (likely full), continuing anyway:', storageErr);
-      }
-
-      // 2. Find email in document content
-      const allText = editorState.pages.flatMap(p => p.elements)
-        .filter(el => el.type === 'text')
-        .map(el => el.content)
-        .join(' ');
-      const emailMatch = allText.match(/[a-zA-Z0-9._%+-]+@([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}/);
-      const userEmail = emailMatch ? emailMatch[0] : null;
-
-      // 3. Create Checkout Session with timeout for Render cold starts
-      const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s timeout
-
-      let response: Response;
-      try {
-        response = await fetch(`${apiBase}/create-checkout-session`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            email: userEmail || undefined,
-            origin: window.location.origin
-          }),
-          signal: controller.signal
-        });
-      } catch (fetchErr: any) {
-        clearTimeout(timeoutId);
-        if (fetchErr.name === 'AbortError') {
-          throw new Error('O servidor demorou muito a responder. Tente novamente em alguns segundos.');
-        }
-        throw new Error('Não foi possível conectar ao servidor de pagamento. Verifique sua conexão.');
-      }
-      clearTimeout(timeoutId);
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ error: 'Erro interno no servidor' }));
-        throw new Error(errorData.error || `Erro do servidor: ${response.status}`);
-      }
-
-      const session = await response.json();
-
-      // 4. Redirect to Stripe Checkout
-      if (session.url) {
-        window.location.href = session.url;
-        return; // Don't reset isProcessingPayment — we're navigating away
-      } else {
-        throw new Error('URL de checkout não retornada pelo servidor.');
-      }
-    } catch (error) {
-      console.error('Checkout error:', error);
-      alert(error instanceof Error ? error.message : 'Erro ao iniciar pagamento. Tente novamente.');
-      setIsProcessingPayment(false);
-    }
-  };
-
-  // Helper to convert editor elements to exporter format
-  const mapElementsToExport = useCallback((elements: EditorElement[]) => {
-    const exportLines: any[] = [];
-    const exportShapes: any[] = [];
-    const exportImages: any[] = [];
-
-    elements.forEach(el => {
-      if (el.type === 'text') {
-        exportLines.push({
-          text: el.content,
-          x: el.x,
-          y: el.y,
-          fontSize: el.style.fontSize || 12,
-          fontWeight: el.style.fontWeight,
-          color: el.style.color
-        });
-      } else if (el.type === 'shape') {
-        exportShapes.push({
-          x: el.x,
-          y: el.y,
-          width: el.width,
-          height: el.height,
-          backgroundColor: el.style.backgroundColor,
-          opacity: el.style.opacity
-        });
-      } else if (el.type === 'image') {
-        exportImages.push({
-          x: el.x,
-          y: el.y,
-          width: el.width,
-          height: el.height,
-          src: el.content,
-          opacity: el.style.opacity,
-          rotation: el.rotation
-        });
-      } else if (el.type === 'smart-element') {
-        const content = el.content?.toLowerCase() || '';
-        if (content.includes('photo') && el.componentData?.userImage) {
-          exportImages.push({
-            x: el.x,
-            y: el.y,
-            width: el.width,
-            height: el.height,
-            src: el.componentData.userImage,
-            opacity: el.style.opacity
-          });
-        } else if (content.includes('resumesection') && el.componentData?.section) {
-          const section = el.componentData.section;
-          let currentY = el.y;
-          if (section.title) {
-            exportLines.push({ text: section.title, x: el.x, y: currentY, fontSize: 14, fontWeight: 'bold' });
-            currentY += 20;
-          }
-          if (section.items) {
-            section.items.forEach((item: any) => {
-              const mainText = item.position || item.school || '';
-              const subText = item.company || item.degree || '';
-              const period = item.period || item.year || '';
-
-              if (mainText) {
-                exportLines.push({ text: mainText, x: el.x, y: currentY, fontSize: 11, fontWeight: 'bold' });
-                currentY += 15;
-              }
-              if (subText || period) {
-                exportLines.push({ text: `${subText}${subText && period ? ' | ' : ''}${period}`, x: el.x, y: currentY, fontSize: 9 });
-                currentY += 12;
-              }
-              if (item.description) {
-                const descLines = item.description.split('\n');
-                descLines.forEach((d: string) => {
-                  exportLines.push({ text: d, x: el.x + 10, y: currentY, fontSize: 9 });
-                  currentY += 12;
-                });
-              }
-              currentY += 5;
-            });
-          } else if (section.content) {
-            const contentLines = section.content.split('\n');
-            contentLines.forEach((l: string) => {
-              exportLines.push({ text: l, x: el.x, y: currentY, fontSize: 10 });
-              currentY += 12;
-            });
-          }
-        }
-      }
-    });
-    return { exportLines, exportShapes, exportImages };
-  }, []);
-
-  // Check for payment success on load — use current editor state, not fragile localStorage
+  // GLOBAL EXPORT HANDLER (Effect)
   useEffect(() => {
     const query = new URLSearchParams(window.location.search);
     if (query.get('payment_success')) {
-      // Clean up URL immediately
+      localStorage.setItem('is_premium_unlocked', 'true');
       window.history.replaceState({}, document.title, window.location.pathname);
 
-      // Small delay to let React hydrate the editor state
-      const timer = setTimeout(async () => {
+      const runExport = async () => {
         try {
-          // Use current editor state (pages from initial state or restored from other means)
-          const pagesToExport = editorState.pages;
-          if (!pagesToExport || pagesToExport.length === 0) {
-            console.warn('No pages to export after payment success');
-            alert('Pagamento confirmado! Mas não há conteúdo para exportar. Crie seu documento e exporte novamente.');
-            return;
+          setExportStatus(language === 'pt' ? 'Pagamento confirmado! Preparando modo de impressão...' : 'Payment confirmed! Preparing print mode...');
+          window.scrollTo(0, 0);
+
+          let recoveredPages: PDFPage[] | null = null;
+          const isCurrentStateEmpty = editorState.pages.length === 0 || (editorState.pages.length === 1 && editorState.pages[0].elements.length === 0);
+
+          // Critical Fix: Always prefer the specific export backup created at checkout time.
+          // The previous logic only looked at backups if the current state was empty,
+          // but often the app initializes with STALE data from 'pdfsim_editor_state',
+          // causing the fresh 'pdfsim_export_backup' to be ignored.
+          const sessionBackup = sessionStorage.getItem('pdfsim_export_backup');
+          const localBackup = localStorage.getItem('pdfsim_export_backup');
+
+          const attemptParse = (raw: string | null) => {
+            if (!raw) return null;
+            try {
+              const parsed = JSON.parse(raw);
+              if (parsed?.pages?.length > 0) return parsed;
+            } catch (e) { }
+            return null;
+          };
+
+          const exportState = attemptParse(sessionBackup) || attemptParse(localBackup);
+
+          if (exportState) {
+            console.log("Restoring explicit export backup for printing...");
+            recoveredPages = exportState.pages;
+            setEditorState(exportState);
+          } else if (isCurrentStateEmpty) {
+            // Fallback to main save if no specific export backup exists
+            const mainSave = localStorage.getItem('pdfsim_editor_state');
+            const recoveredState = attemptParse(mainSave);
+            if (recoveredState) {
+              recoveredPages = recoveredState.pages;
+              setEditorState(recoveredState);
+            }
+          } else {
+            recoveredPages = editorState.pages;
           }
 
-          const { exportToPDF, downloadPDF } = await import('./utils/pdfExporter');
+          if (!recoveredPages || recoveredPages.length === 0) return;
 
-          const exportPages = pagesToExport.map((page: PDFPage) => {
-            const { exportLines, exportShapes, exportImages } = mapElementsToExport(page.elements);
-            return {
-              lines: exportLines,
-              shapes: exportShapes,
-              images: exportImages,
-              backgroundImage: page.backgroundImage,
-              width: 595,
-              height: 842,
-              drawingData: page.drawingData
-            };
-          });
+          setIsExportMode(true);
+          await new Promise(resolve => setTimeout(resolve, 3500));
 
-          const pdfBytes = await exportToPDF(exportPages);
-          downloadPDF(pdfBytes, 'curriculo-inteligente.pdf');
+          const exportContainer = document.getElementById('visible-export-container');
+          if (!exportContainer) throw new Error("Container de exportação não encontrado.");
 
-          // Try to send by email too
-          const allText = pagesToExport.flatMap((p: PDFPage) => p.elements)
-            .filter((el: EditorElement) => el.type === 'text')
-            .map((el: EditorElement) => el.content)
-            .join(' ');
-          const emailMatch = allText.match(/[a-zA-Z0-9._%+-]+@([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}/);
-          const userEmail = emailMatch ? emailMatch[0] : null;
+          setExportStatus(language === 'pt' ? 'Gerando PDF...' : 'Generating PDF...');
+          // @ts-ignore
+          const html2pdf = (await import('html2pdf.js')).default;
 
-          if (userEmail) {
-            const pdfBase64 = btoa(
-              new Uint8Array(pdfBytes)
-                .reduce((data, byte) => data + String.fromCharCode(byte), '')
-            );
-            const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-            fetch(`${apiBase}/send-pdf-email`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ email: userEmail, pdfBase64 })
-            }).catch(err => console.error('Erro ao enviar email:', err));
-          }
+          const opt = {
+            margin: 0,
+            filename: 'curriculo_profissional.pdf',
+            image: { type: 'jpeg' as const, quality: 0.98 },
+            html2canvas: {
+              scale: 2,
+              useCORS: true,
+              letterRendering: true,
+              backgroundColor: '#ffffff',
+              scrollY: 0
+            },
+            jsPDF: { unit: 'pt', format: 'a4', orientation: 'portrait' as const }
+          };
 
-          // Cleanup
-          localStorage.removeItem('pendingExportState');
-          setIsProcessingPayment(false);
-        } catch (err) {
-          console.error('Export after payment failed:', err);
-          alert('Pagamento confirmado, mas houve um erro ao exportar. Tente exportar manualmente.');
-          setIsProcessingPayment(false);
+          await html2pdf().from(exportContainer).set(opt).save();
+
+          setExportStatus(language === 'pt' ? 'Pronto!' : 'Ready!');
+          localStorage.removeItem('is_premium_unlocked');
+          localStorage.removeItem('pendingExportMetadata');
+
+          // Auto-close export mode after success
+          setTimeout(() => {
+            setExportStatus(null);
+            setIsExportMode(false);
+          }, 2000);
+        } catch (err: any) {
+          console.error('Auto-export failed:', err);
+          setExportStatus(null);
+          alert(`Erro ao gerar PDF: ${err.message || 'Erro desconhecido'}`);
+          setIsExportMode(false);
         }
-      }, 500);
+      };
 
-      return () => clearTimeout(timer);
+      runExport();
     }
-  }, []);
+  }, [language]);
 
   const handleApplyTemplate = (template: Template) => {
     const PAGE_HEIGHT = 842;
-    const MARGIN_BOTTOM = 20; // Reduced to allow more content per page
+    const MARGIN_BOTTOM = 20;
     const MARGIN_TOP = 50;
-
-    // Identify background elements that should repeat on every page (like sidebars)
     const backgroundElements = template.elements.filter(el => el.isBackground);
-
-    // Calculate the height occupied by headers to avoid overlap on subsequent pages
     const headerElements = backgroundElements.filter(el => el.y < 250);
     const topBackgroundHeight = headerElements.reduce((max, el) => {
       const h = el.height || (el.type === 'text' ? (el.style.fontSize || 10) * 1.5 : 20);
       return Math.max(max, el.y + h);
     }, 0);
-
-    // If there is a header, ensure content starts significantly lower on Page 2+
-    const REFLOW_MARGIN_TOP = headerElements.length > 0
-      ? Math.max(MARGIN_TOP + 120, topBackgroundHeight + 20)
-      : MARGIN_TOP;
-
-    const contentElements = template.elements.filter(el =>
-      !el.isBackground
-    ).sort((a, b) => a.y - b.y);
-
+    const REFLOW_MARGIN_TOP = headerElements.length > 0 ? Math.max(MARGIN_TOP + 120, topBackgroundHeight + 20) : MARGIN_TOP;
+    const contentElements = template.elements.filter(el => !el.isBackground).sort((a, b) => a.y - b.y);
     const pages: PDFPage[] = [];
     let currentElements: EditorElement[] = [...backgroundElements];
     let pageNumber = 1;
@@ -878,21 +227,15 @@ const App: React.FC = () => {
     contentElements.forEach((el, index) => {
       const elementHeight = el.height || 20;
       let elementY = el.y + yOffset;
-
-      // Detection for orphan headers: if this is a header, peek if its next content fits
       const isHeader = el.id.endsWith('-h') || el.id.includes('header');
       let shouldBreak = elementY + elementHeight > currentPageYMax && el.type !== 'shape';
-
       if (isHeader && !shouldBreak) {
-        // Peek up to 3 elements ahead (e.g., Header -> Line -> Padding -> Content)
         let peekY = elementY + elementHeight;
         for (let i = 1; i <= 3; i++) {
           const peekEl = contentElements[index + i];
           if (peekEl) {
-            const peekElHeight = (peekEl.height || 20) + 4; // Reduced buffer for tighter fit
+            const peekElHeight = (peekEl.height || 20) + 4;
             const peekElAbsoluteY = peekEl.y + yOffset;
-
-            // If the next logical vertical position or the actual element overflows, break
             if (peekY + peekElHeight > currentPageYMax || peekElAbsoluteY + peekElHeight > currentPageYMax) {
               shouldBreak = true;
               break;
@@ -901,303 +244,379 @@ const App: React.FC = () => {
           }
         }
       }
-
       if (shouldBreak) {
-        // Push current page
         pages.push({
           id: `page-${pageNumber}-${Date.now()}`,
           pageNumber: pageNumber,
           elements: currentElements.map(cel => ({ ...cel, id: `${cel.id}-${pageNumber}-${Math.random().toString(36).substr(2, 5)}` }))
         });
-
-        // Setup for new page
         pageNumber++;
         currentElements = [...backgroundElements];
-
-        // Reflow: this element (and subsequent ones) start from REFLOW_MARGIN_TOP
         yOffset = REFLOW_MARGIN_TOP - el.y;
         elementY = REFLOW_MARGIN_TOP;
       }
-
-      currentElements.push({
-        ...el,
-        y: elementY,
-        id: `${el.id}-${pageNumber}-${Math.random().toString(36).substr(2, 5)}`
-      });
+      currentElements.push({ ...el, y: elementY, id: `${el.id}-${pageNumber}-${Math.random().toString(36).substr(2, 5)}` });
     });
-
-    // Final Page
-    pages.push({
-      id: `page-${pageNumber}-${Date.now()}`,
-      pageNumber: pageNumber,
-      elements: currentElements
-    });
-
-    setEditorState(prev => ({
-      ...prev,
-      selectedElementId: null,
-      pages: pages,
-      currentPageId: pages[0].id,
-      eraserMode: false
-    }));
+    pages.push({ id: `page-${pageNumber}-${Date.now()}`, pageNumber: pageNumber, elements: currentElements });
+    setEditorState(prev => ({ ...prev, selectedElementId: null, pages: pages, currentPageId: pages[0].id, eraserMode: false }));
     setIsTemplateSelectorOpen(false);
   };
 
-
-
   const handleWizardComplete = (data: any, template: any) => {
-    // Clone template elements and populate with user data
     const populatedElements = template.elements.map((element: EditorElement) => {
       const newElement = { ...element };
-
-      // Populate text elements based on their ID
       if (element.type === 'text') {
         const id = element.id.toLowerCase();
-
-        // Name fields
         if (id.includes('name') && !id.includes('company') && !id.includes('fullname')) {
           newElement.content = data.fullName || element.content;
-        }
-        // Role/Title fields
-        else if (id === 'role' || id === 'tagline') {
-          // Keep template default unless user specifies
+        } else if (id === 'role' || id === 'tagline') {
           newElement.content = element.content;
-        }
-        // Contact fields (combined contact string)
-        else if ((id.includes('contact') || id === 'info' || id === 'contact-info') && !id.includes('header') && !id.includes('-h')) {
+        } else if ((id.includes('contact') || id === 'info' || id === 'contact-info') && !id.includes('header') && !id.includes('-h')) {
           const contactParts = [];
           if (data.location) contactParts.push(`📍 ${data.location}`);
           if (data.phone) contactParts.push(`📞 ${data.phone}`);
           if (data.email) contactParts.push(`✉️ ${data.email}`);
           if (data.website) contactParts.push(`🔗 ${data.website}`);
           if (contactParts.length > 0) {
-            // If original uses " | " separator (single line), keep that format
             if (element.content.includes('  |  ') || element.content.includes('  •  ')) {
               newElement.content = contactParts.join('  |  ');
             } else {
               newElement.content = contactParts.join('\n');
             }
           }
-        }
-        // Summary fields
-        else if (id.includes('summary') && !id.includes('header') && !id.includes('-h') && !id.includes('title')) {
-          if (data.summary) {
-            newElement.content = data.summary;
-          }
-        }
-        // About Me fields
-        else if (id === 'about' || id === 'profile') {
-          if (data.summary) {
-            newElement.content = data.summary;
-          }
-        }
-
-        // --- Experience: populate job1, job2 text elements ---
-        else if (id === 'job1-role' && data.experience.length > 0) {
+        } else if (id.includes('summary') && !id.includes('header') && !id.includes('-h') && !id.includes('title')) {
+          if (data.summary) newElement.content = data.summary;
+        } else if (id === 'about' || id === 'profile') {
+          if (data.summary) newElement.content = data.summary;
+        } else if (id === 'job1-role' && data.experience.length > 0) {
           newElement.content = data.experience[0].title || element.content;
-        }
-        else if ((id === 'job1-comp' || id === 'job1-company') && data.experience.length > 0) {
+        } else if ((id === 'job1-comp' || id === 'job1-company') && data.experience.length > 0) {
           const exp = data.experience[0];
           newElement.content = exp.period ? `${exp.company} | ${exp.period}` : exp.company;
-        }
-        else if ((id === 'job1-date' || id === 'job1-period') && data.experience.length > 0 && data.experience[0].period) {
+        } else if ((id === 'job1-date' || id === 'job1-period') && data.experience.length > 0 && data.experience[0].period) {
           newElement.content = data.experience[0].period;
-        }
-        else if ((id === 'job1-desc' || id === 'job1-achievements') && data.experience.length > 0 && data.experience[0].description) {
+        } else if ((id === 'job1-desc' || id === 'job1-achievements') && data.experience.length > 0 && data.experience[0].description) {
           newElement.content = data.experience[0].description;
-        }
-        else if (id === 'job2-role' && data.experience.length > 1) {
+        } else if (id === 'job2-role' && data.experience.length > 1) {
           newElement.content = data.experience[1].title || element.content;
-        }
-        else if ((id === 'job2-comp' || id === 'job2-company') && data.experience.length > 1) {
+        } else if ((id === 'job2-comp' || id === 'job2-company') && data.experience.length > 1) {
           const exp = data.experience[1];
           newElement.content = exp.period ? `${exp.company} | ${exp.period}` : exp.company;
-        }
-        else if ((id === 'job2-date' || id === 'job2-period') && data.experience.length > 1 && data.experience[1].period) {
+        } else if ((id === 'job2-date' || id === 'job2-period') && data.experience.length > 1 && data.experience[1].period) {
           newElement.content = data.experience[1].period;
-        }
-        else if ((id === 'job2-desc' || id === 'job2-achievements') && data.experience.length > 1 && data.experience[1].description) {
+        } else if ((id === 'job2-desc' || id === 'job2-achievements') && data.experience.length > 1 && data.experience[1].description) {
           newElement.content = data.experience[1].description;
-        }
-
-        // --- Education: populate edu1, edu2 text elements ---
-        else if ((id === 'edu1-title' || id === 'edu1-degree') && data.education.length > 0) {
+        } else if ((id === 'edu1-title' || id === 'edu1-degree') && data.education.length > 0) {
           newElement.content = data.education[0].degree || element.content;
-        }
-        else if (id === 'edu1-school' && data.education.length > 0) {
+        } else if (id === 'edu1-school' && data.education.length > 0) {
           const edu = data.education[0];
           newElement.content = edu.year ? `${edu.school} | ${edu.year}` : edu.school;
-        }
-        else if (id === 'edu1-year' && data.education.length > 0 && data.education[0].year) {
+        } else if (id === 'edu1-year' && data.education.length > 0 && data.education[0].year) {
           newElement.content = data.education[0].year;
-        }
-        else if ((id === 'edu2-title' || id === 'edu2-degree') && data.education.length > 1) {
+        } else if ((id === 'edu2-title' || id === 'edu2-degree') && data.education.length > 1) {
           newElement.content = data.education[1].degree || element.content;
-        }
-        else if (id === 'edu2-school' && data.education.length > 1) {
+        } else if (id === 'edu2-school' && data.education.length > 1) {
           const edu = data.education[1];
           newElement.content = edu.year ? `${edu.school} | ${edu.year}` : edu.school;
-        }
-        else if (id === 'edu2-year' && data.education.length > 1 && data.education[1].year) {
+        } else if (id === 'edu2-year' && data.education.length > 1 && data.education[1].year) {
           newElement.content = data.education[1].year;
-        }
-        // Single education field (e.g. "edu" or "education")
-        else if ((id === 'edu' || id === 'edu1' || id === 'education') && !id.includes('-h') && data.education.length > 0) {
+        } else if ((id === 'edu' || id === 'edu1' || id === 'education') && !id.includes('-h') && data.education.length > 0) {
           const parts = data.education.map((edu: any) => {
             return edu.year ? `• ${edu.degree} - ${edu.school} | ${edu.year}` : `• ${edu.degree} - ${edu.school}`;
           });
           newElement.content = parts.join('\n');
-        }
-
-        // Skills list population
-        else if (id.includes('skill') && !id.includes('header') && !id.includes('-h')) {
+        } else if (id.includes('skill') && !id.includes('header') && !id.includes('-h')) {
           if (data.skills && data.skills.length > 0) {
             newElement.content = data.skills.map((s: string) => `• ${s}`).join('\n');
           }
-        }
-
-        // --- Skills: populate skill-list, skill-col, comp-col elements ---
-        else if ((id.includes('skill-list') || id.includes('skill-col') || id.includes('comp-col')) && data.skills.length > 0) {
-          // Distribute skills across columns if multiple columns exist
+        } else if ((id.includes('skill-list') || id.includes('skill-col') || id.includes('comp-col')) && data.skills.length > 0) {
           const colMatch = id.match(/col(\d)/);
           if (colMatch) {
             const colIndex = parseInt(colMatch[1]) - 1;
             const chunkSize = Math.ceil(data.skills.length / 3);
             const start = colIndex * chunkSize;
             const chunk = data.skills.slice(start, start + chunkSize);
-            if (chunk.length > 0) {
-              newElement.content = chunk.map((s: string) => `• ${s}`).join('\n');
-            }
+            if (chunk.length > 0) newElement.content = chunk.map((s: string) => `• ${s}`).join('\n');
           } else {
             newElement.content = data.skills.map((s: string) => `• ${s}`).join('\n');
           }
         }
-      }
-
-      // Populate smart elements
-      else if (element.type === 'smart-element') {
+      } else if (element.type === 'smart-element') {
         const content = element.content?.toLowerCase() || '';
-
-        // Professional Photo
         if (content.includes('photo')) {
-          newElement.componentData = {
-            ...element.componentData,
-            userImage: data.photo || '',
-          };
-        }
-
-        // Resume Sections
-        else if (content.includes('resumesection') && element.componentData?.section) {
+          newElement.componentData = { ...element.componentData, userImage: data.photo || '' };
+        } else if (content.includes('resumesection') && element.componentData?.section) {
           const section = element.componentData.section;
-
-          // Experience section
           if (section.type === 'timeline_experience' || section.type === 'star_experience') {
             if (data.experience.length > 0) {
-              newElement.componentData = {
-                ...element.componentData,
-                section: {
-                  ...section,
-                  items: data.experience.map((exp: any) => ({
-                    position: exp.title,
-                    company: exp.company,
-                    period: exp.period,
-                    description: exp.description,
-                  }))
-                }
-              };
+              newElement.componentData = { ...element.componentData, section: { ...section, items: data.experience.map((exp: any) => ({ position: exp.title, company: exp.company, period: exp.period, description: exp.description })) } };
             }
-          }
-
-          // Education section
-          else if (section.type === 'education_list') {
+          } else if (section.type === 'education_list') {
             if (data.education.length > 0) {
-              newElement.componentData = {
-                ...element.componentData,
-                section: {
-                  ...section,
-                  items: data.education.map((edu: any) => ({
-                    school: edu.school,
-                    degree: edu.degree,
-                    year: edu.year,
-                  }))
-                }
-              };
+              newElement.componentData = { ...element.componentData, section: { ...section, items: data.education.map((edu: any) => ({ school: edu.school, degree: edu.degree, year: edu.year })) } };
             }
-          }
-
-          // Skills section
-          else if (section.type === 'skills_grid' || section.type === 'simple_list') {
+          } else if (section.type === 'skills_grid' || section.type === 'simple_list') {
             if (data.skills.length > 0) {
-              newElement.componentData = {
-                ...element.componentData,
-                section: {
-                  ...section,
-                  content: data.skills.map((s: string) => `• ${s}`).join('\n')
-                }
-              };
+              newElement.componentData = { ...element.componentData, section: { ...section, content: data.skills.map((s: string) => `• ${s}`).join('\n') } };
             }
           }
         }
       }
-
       return newElement;
     });
+    const pages: PDFPage[] = [{ id: `page-1-${Date.now()}`, pageNumber: 1, elements: populatedElements }];
+    setEditorState(prev => ({ ...prev, selectedElementId: null, pages: pages, currentPageId: pages[0].id }));
+    setIsWizardOpen(false);
+  };
 
-    // Create a single page with all populated elements
-    const pages: PDFPage[] = [{
-      id: `page-1-${Date.now()}`,
-      pageNumber: 1,
-      elements: populatedElements
-    }];
+  // Automatic Pagination Logic (Refined)
+  const checkPageOverflow = (pageIndex: number, currentPages: PDFPage[]): PDFPage[] => {
+    const PAGE_HEIGHT = 842;
+    const MARGIN_BOTTOM = 60; // Increased margin to ensure visual clearance
+    const CONTENT_MAX_Y = PAGE_HEIGHT - MARGIN_BOTTOM;
+    const TOP_MARGIN_NEXT_PAGE = 50;
 
+    const page = currentPages[pageIndex];
+    if (!page) return currentPages;
+
+    // Identify overflowing elements
+    const overflowingElements = page.elements.filter(el => {
+      if (el.isBackground || el.locked) return false;
+      // Ensure numeric comparison
+      const y = Number(el.y);
+      const h = Number(el.height);
+      return (y + h) > CONTENT_MAX_Y;
+    });
+
+    if (overflowingElements.length === 0) {
+      return currentPages;
+    }
+
+    console.log('Overflow detected on page', pageIndex, overflowingElements);
+
+    // Sort: process lower elements first? Or top elements?
+    // If we process top elements first, we might split one, and then the ones below it need to move too.
+    overflowingElements.sort((a, b) => a.y - b.y);
+
+    let nextPageIndex = pageIndex + 1;
+    let nextPages = [...currentPages];
+
+    // Create next page if needed
+    if (nextPageIndex >= nextPages.length) {
+      const newPage: PDFPage = {
+        id: `page-${Date.now()}-${Math.random()}`,
+        pageNumber: nextPages.length + 1,
+        elements: []
+      };
+      nextPages.push(newPage);
+    }
+
+    // Process elements
+    const elementsToMove: EditorElement[] = [];
+    const elementsToKeep: EditorElement[] = [];
+    const splitMap = new Map<string, boolean>(); // Track split status
+
+    page.elements.forEach(el => {
+      if (!overflowingElements.includes(el)) {
+        elementsToKeep.push(el);
+        return;
+      }
+
+      // Check if text and partially overlapping
+      // If y is already past limit, move entirely.
+      if (el.type === 'text' && el.y < CONTENT_MAX_Y) {
+
+        const availableHeight = Math.max(0, CONTENT_MAX_Y - el.y);
+
+        // If really small space, just move it
+        if (availableHeight < 30) {
+          elementsToMove.push(el);
+          return;
+        }
+
+        // Split logic
+        const ratio = availableHeight / el.height;
+        const estimatedChars = Math.floor(el.content.length * ratio);
+
+        // Safe break point
+        const searchBuffer = 100;
+        let splitIdx = estimatedChars;
+
+        // Search backwards for newline or space
+        let found = false;
+        for (let i = 0; i < searchBuffer; i++) {
+          const char = el.content[estimatedChars - i];
+          if (char === '\n' || char === ' ') {
+            splitIdx = estimatedChars - i;
+            found = true;
+            break;
+          }
+        }
+
+        if (!found) splitIdx = estimatedChars; // Force split if no safe place
+
+        const part1 = el.content.substring(0, splitIdx);
+        const part2 = el.content.substring(splitIdx).trim();
+
+        if (part2.length > 0) {
+          elementsToKeep.push({
+            ...el,
+            content: part1,
+            height: availableHeight
+          });
+
+          elementsToMove.push({
+            ...el,
+            id: `${el.id}-split-${Date.now()}`,
+            content: part2,
+            height: el.height - availableHeight, // allow auto-resize later
+            y: 0
+          });
+          splitMap.set(el.id, true);
+        } else {
+          // Split didn't result in new content, just keep (shouldn't happen with overflow check)
+          elementsToMove.push(el);
+        }
+
+      } else {
+        // Move entirely
+        elementsToMove.push(el);
+      }
+    });
+
+    // Update current page
+    nextPages[pageIndex] = {
+      ...page,
+      elements: elementsToKeep
+    };
+
+    // Add to next page
+    let currentY = TOP_MARGIN_NEXT_PAGE;
+
+    const positionedMovedElements = elementsToMove.map(el => {
+      const newEl = { ...el, y: currentY, id: el.id.includes('split') ? el.id : el.id };
+      // Reset height for text to 'auto' logic if possible, or estimates
+      currentY += (el.height || 50) + 10;
+      return newEl;
+    });
+
+    // Shift existing elements on next page
+    const nextPage = nextPages[nextPageIndex];
+    const shiftAmount = currentY - TOP_MARGIN_NEXT_PAGE + 10;
+
+    const existingElementsShifted = nextPage.elements.map(el => ({
+      ...el,
+      y: el.y + shiftAmount
+    }));
+
+    nextPages[nextPageIndex] = {
+      ...nextPage,
+      elements: [...positionedMovedElements, ...existingElementsShifted]
+    };
+
+    // Recursively check next page
+    return checkPageOverflow(nextPageIndex, nextPages);
+  };
+
+  const handleUpdateElement = useCallback((pageId: string, elementId: string, updates: Partial<EditorElement>) => {
+    setEditorState(prev => {
+      // 1. Apply updates
+      const pageIndex = prev.pages.findIndex(p => p.id === pageId);
+      if (pageIndex === -1) return prev;
+
+      const updatedPages = prev.pages.map((p, idx) =>
+        idx === pageIndex
+          ? { ...p, elements: p.elements.map(el => el.id === elementId ? { ...el, ...updates } : el) }
+          : p
+      );
+
+      // 2. Check for overflow
+      // Only trigger if height or y changed, but checking always is safer for consistency
+      if (updates.height || updates.y || updates.content) {
+        try {
+          const rebalancedPages = checkPageOverflow(pageIndex, updatedPages);
+          return { ...prev, pages: rebalancedPages };
+        } catch (e) {
+          console.error("Pagination Error", e);
+          return { ...prev, pages: updatedPages };
+        }
+      }
+
+      return {
+        ...prev,
+        pages: updatedPages
+      };
+    });
+  }, []);
+
+  const handleDeleteElement = useCallback(() => {
+    if (!editorState.selectedElementId) return;
     setEditorState(prev => ({
       ...prev,
       selectedElementId: null,
-      pages: pages,
-      currentPageId: pages[0].id
+      pages: prev.pages.map(p => ({
+        ...p,
+        elements: p.elements.filter(el => el.id !== prev.selectedElementId)
+      }))
     }));
-    setIsWizardOpen(false);
-  };
+  }, [editorState.selectedElementId]);
+
+  // Global Delete Key Handler
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // 1. Check if an element is selected
+      if (!editorState.selectedElementId) return;
+
+      // 2. Check for Delete/Backspace
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        const activeTag = document.activeElement?.tagName.toLowerCase();
+        const isInputActive = activeTag === 'input' || activeTag === 'textarea';
+
+        if (isInputActive) {
+          // If editing text, require CTRL+DELETE to remove the element
+          if (e.ctrlKey || e.metaKey) {
+            e.preventDefault();
+            handleDeleteElement();
+          }
+        } else {
+          // If not in input mode (e.g. image/shape selected), delete immediately
+          e.preventDefault();
+          handleDeleteElement();
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [editorState.selectedElementId, handleDeleteElement]);
 
   const handleBringToFront = useCallback(() => {
     if (!editorState.selectedElementId) return;
     setEditorState(prev => {
       const page = prev.pages.find(p => p.id === prev.currentPageId);
       if (!page) return prev;
-
       const elementIndex = page.elements.findIndex(el => el.id === prev.selectedElementId);
       if (elementIndex === -1 || elementIndex === page.elements.length - 1) return prev;
-
       const newElements = [...page.elements];
       const [movedElement] = newElements.splice(elementIndex, 1);
       newElements.push(movedElement);
-
-      return {
-        ...prev,
-        pages: prev.pages.map(p => p.id === prev.currentPageId ? { ...p, elements: newElements } : p)
-      };
+      return { ...prev, pages: prev.pages.map(p => p.id === prev.currentPageId ? { ...p, elements: newElements } : p) };
     });
-  }, [editorState.selectedElementId]);
+  }, [editorState.selectedElementId, editorState.currentPageId]);
 
   const handleSendToBack = useCallback(() => {
     if (!editorState.selectedElementId) return;
     setEditorState(prev => {
       const page = prev.pages.find(p => p.id === prev.currentPageId);
       if (!page) return prev;
-
       const elementIndex = page.elements.findIndex(el => el.id === prev.selectedElementId);
       if (elementIndex === -1 || elementIndex === 0) return prev;
-
       const newElements = [...page.elements];
       const [movedElement] = newElements.splice(elementIndex, 1);
       newElements.unshift(movedElement);
-
-      return {
-        ...prev,
-        pages: prev.pages.map(p => p.id === prev.currentPageId ? { ...p, elements: newElements } : p)
-      };
+      return { ...prev, pages: prev.pages.map(p => p.id === prev.currentPageId ? { ...p, elements: newElements } : p) };
     });
-  }, [editorState.selectedElementId]);
+  }, [editorState.selectedElementId, editorState.currentPageId]);
 
   const handleToggleEraser = useCallback(() => {
     setEditorState(prev => ({ ...prev, eraserMode: !prev.eraserMode, penMode: false, selectedElementId: null }));
@@ -1207,129 +626,395 @@ const App: React.FC = () => {
     setEditorState(prev => ({ ...prev, penMode: !prev.penMode, eraserMode: false, selectedElementId: null }));
   }, []);
 
+  const handleAddElement = (type: ElementType, content?: string, style: any = {}, componentData?: any, w?: number, h?: number) => {
+    const newElement: EditorElement = {
+      id: `el-${Date.now()}`,
+      type,
+      x: 100,
+      y: 100,
+      width: w || (type === 'text' ? 200 : 100),
+      height: h || (type === 'text' ? 50 : 100),
+      content: content || (type === 'text' ? 'Novo Texto' : ''),
+      style: {
+        fontSize: 14,
+        color: '#000000',
+        ...style
+      },
+      componentData
+    };
+    setEditorState(prev => ({
+      ...prev,
+      pages: prev.pages.map(p => p.id === prev.currentPageId ? { ...p, elements: [...p.elements, newElement] } : p),
+      selectedElementId: newElement.id
+    }));
+  };
+
+  const handleAddPage = () => {
+    const newPage: PDFPage = {
+      id: `page-${Date.now()}`,
+      pageNumber: editorState.pages.length + 1,
+      elements: []
+    };
+    setEditorState(prev => ({
+      ...prev,
+      pages: [...prev.pages, newPage],
+      currentPageId: newPage.id
+    }));
+  };
+
+  const handleCheckoutAndExport = async () => {
+    setIsProcessingPayment(true);
+    try {
+      sessionStorage.setItem('pdfsim_export_backup', JSON.stringify(editorState));
+      localStorage.setItem('pdfsim_export_backup', JSON.stringify(editorState));
+
+      const res = await fetch('http://127.0.0.1:5000/create-checkout-session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          priceId: 'price_1Qv3xMBy8vR5Pmxm0Vz12345',
+          origin: window.location.origin // Dynamic return URL to fix connection errors
+        })
+      });
+      const data = await res.json();
+      if (data.url) window.location.href = data.url;
+    } catch (err) {
+      console.error(err);
+      alert(language === 'pt' ? 'Erro ao iniciar checkout.' : 'Error starting checkout.');
+    } finally {
+      setIsProcessingPayment(false);
+    }
+  };
+
+  const handleImageUploadTrigger = (elementId?: string) => {
+    activeCameraElementId.current = elementId || null;
+    fileInputRef.current?.click();
+  };
+
+  const handleImageFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (loadEvent) => {
+        const dataUrl = loadEvent.target?.result as string;
+        const targetId = activeCameraElementId.current;
+
+        if (targetId) {
+          setEditorState(prev => {
+            let targetPageId = '';
+            let isPhoto = false;
+
+            // 1. Precise search by ID
+            for (const page of prev.pages) {
+              const el = page.elements.find(e => e.id === targetId);
+              if (el) {
+                targetPageId = page.id;
+                isPhoto = el.type === 'smart-element' && (el.content === 'ProfessionalPhoto' || el.content?.toLowerCase().includes('photo'));
+                break;
+              }
+            }
+
+            // 2. Fallback: Search for the first ProfessionalPhoto on the current page if target not found
+            if (!targetPageId) {
+              const currentPage = prev.pages.find(p => p.id === prev.currentPageId);
+              if (currentPage) {
+                const fallbackEl = currentPage.elements.find(el => el.type === 'smart-element' && el.content?.toLowerCase().includes('photo'));
+                if (fallbackEl) {
+                  targetPageId = currentPage.id;
+                  // @ts-ignore - we know it's a photo now
+                  activeCameraElementId.current = fallbackEl.id;
+                  isPhoto = true;
+                }
+              }
+            }
+
+            const finalTargetId = activeCameraElementId.current;
+
+            if (targetPageId && finalTargetId) {
+              return {
+                ...prev,
+                pages: prev.pages.map(p =>
+                  p.id === targetPageId
+                    ? {
+                      ...p, elements: p.elements.map(el =>
+                        el.id === finalTargetId
+                          ? (isPhoto
+                            ? { ...el, componentData: { ...el.componentData, userImage: dataUrl } }
+                            : { ...el, content: dataUrl })
+                          : el
+                      )
+                    }
+                    : p
+                )
+              };
+            }
+            return prev;
+          });
+        } else {
+          handleAddElement('image', dataUrl);
+        }
+      };
+      reader.readAsDataURL(file);
+      // Reset input to allow re-uploading the same file
+      e.target.value = '';
+    }
+  };
+
+  const handlePdfUploadTrigger = () => pdfInputRef.current?.click();
+
+  const handlePdfFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      alert(language === 'pt' ? 'Importação de PDF em breve!' : 'PDF Import coming soon!');
+    }
+  };
+
+  const handleConvertToWord = async () => alert('Word Conversion coming soon!');
+  const handleWordReimport = () => wordInputRef.current?.click();
+  const handleWordFileChange = () => { };
+
+  const startCamera = (elementId?: string) => {
+    activeCameraElementId.current = elementId || null;
+    setShowCamera(true);
+    navigator.mediaDevices.getUserMedia({ video: true }).then(stream => {
+      if (videoRef.current) videoRef.current.srcObject = stream;
+    });
+  };
+
+  const stopCamera = () => {
+    const stream = videoRef.current?.srcObject as MediaStream;
+    stream?.getTracks().forEach(track => track.stop());
+    setShowCamera(false);
+  };
+
+  const capturePhoto = () => {
+    if (videoRef.current && canvasRef.current) {
+      const context = canvasRef.current.getContext('2d');
+      canvasRef.current.width = videoRef.current.videoWidth;
+      canvasRef.current.height = videoRef.current.videoHeight;
+      context?.drawImage(videoRef.current, 0, 0);
+      const dataUrl = canvasRef.current.toDataURL('image/png');
+      const targetId = activeCameraElementId.current;
+
+      if (targetId) {
+        setEditorState(prev => {
+          let targetPageId = '';
+          let isPhoto = false;
+
+          // 1. Precise search
+          for (const page of prev.pages) {
+            const el = page.elements.find(e => e.id === targetId);
+            if (el) {
+              targetPageId = page.id;
+              isPhoto = el.type === 'smart-element' && (el.content === 'ProfessionalPhoto' || el.content?.toLowerCase().includes('photo'));
+              break;
+            }
+          }
+
+          // 2. Fallback search
+          if (!targetPageId) {
+            const currentPage = prev.pages.find(p => p.id === prev.currentPageId);
+            if (currentPage) {
+              const fallbackEl = currentPage.elements.find(el => el.type === 'smart-element' && el.content?.toLowerCase().includes('photo'));
+              if (fallbackEl) {
+                targetPageId = currentPage.id;
+                // @ts-ignore
+                activeCameraElementId.current = fallbackEl.id;
+                isPhoto = true;
+              }
+            }
+          }
+
+          const finalTargetId = activeCameraElementId.current;
+
+          if (targetPageId && finalTargetId) {
+            return {
+              ...prev,
+              pages: prev.pages.map(p =>
+                p.id === targetPageId
+                  ? {
+                    ...p, elements: p.elements.map(el =>
+                      el.id === finalTargetId
+                        ? (isPhoto
+                          ? { ...el, componentData: { ...el.componentData, userImage: dataUrl } }
+                          : { ...el, content: dataUrl })
+                        : el
+                    )
+                  }
+                  : p
+              )
+            };
+          }
+          return prev;
+        });
+      } else {
+        handleAddElement('image', dataUrl);
+      }
+      stopCamera();
+    }
+  };
+
+  const handleUpdateDrawing = (pageId: string, drawing: string) => {
+    setEditorState(prev => ({
+      ...prev,
+      pages: prev.pages.map(p => p.id === pageId ? { ...p, drawing } : p)
+    }));
+  };
+
+  const handleErase = (pageId: string, x: number, y: number, w: number, h: number) => { };
+
   const selectedElement = currentPage?.elements?.find(el => el.id === editorState.selectedElementId);
 
-  return (
-    <div className="flex h-screen flex-col overflow-hidden bg-gray-100">
-      {/* Top Header */}
-      <header className="flex h-14 items-center justify-between border-b bg-white px-4 shadow-sm z-50 relative">
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-white shadow-sm overflow-hidden">
-            <img src="/logo.png" alt="PDF Sim Editor Logo" className="h-full w-full object-cover" />
+  // Export Mode Render
+  if (isExportMode) {
+    return (
+      <div className="min-h-screen bg-white flex flex-col items-center">
+        <div className="fixed top-0 left-0 right-0 bg-white shadow-md p-4 z-50 flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <span className="font-bold text-gray-700 text-lg">
+              {exportStatus || (language === 'pt' ? 'Modo de Impressão' : 'Print Mode')}
+            </span>
+            {isProcessingPayment && <span className="animate-spin">⏳</span>}
           </div>
-          <div className="mr-6">
-            <h1 className="text-lg font-black text-gray-900 leading-tight">PDF Sim Editor</h1>
-            <p className="text-[10px] text-gray-500 uppercase tracking-widest font-medium">Professional Design Suite</p>
+          <button
+            onClick={() => setIsExportMode(false)}
+            className="px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded text-gray-700 font-medium"
+          >
+            {language === 'pt' ? 'Voltar ao Editor' : 'Back to Editor'}
+          </button>
+        </div>
+
+        <div className="w-full h-full flex flex-col items-center overflow-auto bg-gray-50">
+          <div className="w-full flex flex-col items-center py-10">
+            {/* CONTAINER Targeted by html2pdf - Keep it clean of extraneous padding */}
+            <div id="visible-export-container">
+              {editorState.pages.map((page) => (
+                <div key={page.id} style={{ width: '595pt', height: '842pt', position: 'relative', overflow: 'hidden', background: '#ffffff', marginBottom: '20px' }}>
+                  <EditorCanvas
+                    language={language}
+                    page={page}
+                    selectedElementId={null}
+                    onSelectElement={() => { }}
+                    onUpdateElement={() => { }}
+                    scale={1.333} // Standard PT to PX conversion
+                    isExporting={true}
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // MAIN EDITOR RENDER
+  return (
+    <div className="flex h-screen flex-col overflow-hidden bg-slate-50 relative font-inter">
+      {/* Automatic Export Overlay */}
+      {exportStatus && (
+        <div className="fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-black/60 backdrop-blur-md animate-in fade-in duration-300">
+          <div className="bg-white p-8 rounded-3xl shadow-2xl flex flex-col items-center gap-6 max-w-sm text-center border border-white/20">
+            <div className="relative">
+              <div className="w-16 h-16 border-4 border-blue-100 border-t-blue-600 rounded-full animate-spin"></div>
+              <div className="absolute inset-0 flex items-center justify-center">
+                <FileText className="text-blue-600 animate-pulse" size={24} />
+              </div>
+            </div>
+            <div>
+              <h3 className="text-xl font-bold text-gray-900 mb-2">{exportStatus}</h3>
+              <p className="text-sm text-gray-500 mb-4">
+                {language === 'pt' ? 'Isso deve levar apenas alguns segundos.' : 'This should only take a few seconds.'}
+              </p>
+              {downloadUrl && (
+                <a
+                  href={downloadUrl}
+                  download="curriculo-profissional.pdf"
+                  className="inline-flex items-center justify-center px-6 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition gap-2"
+                  onClick={() => setTimeout(() => setExportStatus(null), 1000)}
+                >
+                  <Download size={18} />
+                  {language === 'pt' ? 'Baixar PDF Manualmente' : 'Download PDF Manually'}
+                </a>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Top Header - Premium Dark Glassmorphism */}
+      <header className="flex h-16 items-center justify-between border-b border-slate-800 bg-slate-950 px-6 shadow-xl z-50 relative">
+        <div className="flex items-center gap-4">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 shadow-lg shadow-indigo-500/20 overflow-hidden border border-white/20 p-1.5">
+            <img src="/logo.png" alt="Logo" className="h-full w-full object-contain brightness-0 invert" />
+          </div>
+          <div className="mr-8">
+            <h1 className="text-xl font-black text-white leading-tight tracking-tight">PDF Sim <span className="text-indigo-400">Pro</span></h1>
+            <div className="flex items-center gap-1.5 opacity-60">
+              <div className="w-1 h-1 rounded-full bg-emerald-400"></div>
+              <p className="text-[10px] text-slate-400 uppercase tracking-widest font-bold">Premium Editor v2.0</p>
+            </div>
           </div>
 
-          {/* Language Switcher - Relocated to Left and Resized */}
-          <div className="flex items-center gap-4 bg-white px-4 py-2 rounded-xl border border-gray-200 shadow-sm ml-2">
-            <span className="text-sm font-black text-gray-800 uppercase tracking-tight">{translations[language].languageName}:</span>
-            <div className="flex items-center gap-3">
+          <div className="flex items-center gap-4 bg-slate-900/50 px-4 py-2 rounded-2xl border border-slate-800/50 shadow-inner ml-4">
+            <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest leading-none mt-0.5">{translations[language].languageName}:</span>
+            <div className="flex items-center gap-2">
               <button
                 onClick={() => setLanguage('pt')}
-                className={`transition-all hover:scale-110 ${language === 'pt' ? 'grayscale-0 ring-2 ring-indigo-500 ring-offset-2' : 'grayscale opacity-40 hover:opacity-100'}`}
-                title="Português / Brasil"
+                className={`transition-all duration-300 hover:scale-110 active:scale-95 ${language === 'pt' ? 'ring-2 ring-indigo-500 ring-offset-2 ring-offset-slate-950 scale-105' : 'grayscale opacity-30 hover:opacity-100'}`}
               >
-                <img src="https://flagcdn.com/w80/br.png" alt="Brasil" className="w-12 h-auto rounded-md shadow-md" />
+                <img src="https://flagcdn.com/w80/br.png" alt="BR" className="w-8 h-5 object-cover rounded shadow-md" />
               </button>
               <button
                 onClick={() => setLanguage('es')}
-                className={`transition-all hover:scale-110 ${language === 'es' ? 'grayscale-0 ring-2 ring-indigo-500 ring-offset-2' : 'grayscale opacity-40 hover:opacity-100'}`}
-                title="Español"
+                className={`transition-all duration-300 hover:scale-110 active:scale-95 ${language === 'es' ? 'ring-2 ring-indigo-500 ring-offset-2 ring-offset-slate-950 scale-105' : 'grayscale opacity-30 hover:opacity-100'}`}
               >
-                <img src="https://flagcdn.com/w80/es.png" alt="España" className="w-12 h-auto rounded-md shadow-md" />
+                <img src="https://flagcdn.com/w80/es.png" alt="ES" className="w-8 h-5 object-cover rounded shadow-md" />
               </button>
               <button
                 onClick={() => setLanguage('en')}
-                className={`transition-all hover:scale-110 ${language === 'en' ? 'grayscale-0 ring-2 ring-indigo-500 ring-offset-2' : 'grayscale opacity-40 hover:opacity-100'}`}
-                title="English / UK"
+                className={`transition-all duration-300 hover:scale-110 active:scale-95 ${language === 'en' ? 'ring-2 ring-indigo-500 ring-offset-2 ring-offset-slate-950 scale-105' : 'grayscale opacity-30 hover:opacity-100'}`}
               >
-                <img src="https://flagcdn.com/w80/gb.png" alt="United Kingdom" className="w-12 h-auto rounded-md shadow-md" />
+                <img src="https://flagcdn.com/w80/gb.png" alt="EN" className="w-8 h-5 object-cover rounded shadow-md" />
               </button>
             </div>
           </div>
         </div>
 
-        <p className="absolute left-1/2 -translate-x-1/2 text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-600 italic animate-fade-in hidden xl:block whitespace-nowrap drop-shadow-sm">
-          "Currículo Inteligente, visão de recrutador e edição de PDF"
-        </p>
+        <div className="absolute left-1/2 -translate-x-1/2 hidden 2xl:flex items-center gap-3">
+          <div className="h-px w-8 bg-gradient-to-r from-transparent to-slate-700"></div>
+          <p className="text-xl font-bold text-slate-300 italic tracking-wide">
+            "Currículo Inteligente, visão de recrutador e edição de PDF"
+          </p>
+          <div className="h-px w-8 bg-gradient-to-l from-transparent to-slate-700"></div>
+        </div>
 
-        <div className="flex items-center gap-2">
-
-
-
-
-          <div className="h-6 w-px bg-gray-200 mx-2" />
-
+        <div className="flex items-center gap-3">
           <button
-            onClick={() => pdfInputRef.current?.click()}
-            className="flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-100 transition-all"
+            onClick={() => setIsWizardOpen(true)}
+            className="flex items-center gap-2 rounded-xl bg-indigo-600/10 hover:bg-indigo-600 text-indigo-400 hover:text-white px-4 py-2 text-sm font-bold transition-all border border-indigo-600/30 group"
           >
-            <FileText size={18} />
-            {translations[language].insertPdf}
+            <Zap size={16} className="text-indigo-500 group-hover:text-white transition-colors" />
+            {translations[language].wizardTitle || "Assistente Smart"}
           </button>
 
-          <div className="h-6 w-px bg-gray-200 mx-2" />
+          <div className="w-px h-6 bg-slate-800 mx-2"></div>
 
-          {/* Word Conversion Buttons */}
-          {editorState.sessionId && (
-            <>
-              <button
-                onClick={handleConvertToWord}
-                className="flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-100 transition-all border border-transparent"
-                title={translations[language].wordEditTitle}
-              >
-                <div className="p-1 bg-blue-100 text-blue-600 rounded">
-                  <FileText size={14} />
-                </div>
-                {translations[language].editInWord}
-              </button>
-
-              {showWordReimport && (
-                <button
-                  onClick={handleWordReimport}
-                  disabled={isConverting}
-                  className="flex items-center gap-2 rounded-full px-4 py-1.5 text-xs font-medium bg-green-100 text-green-700 hover:bg-green-200 transition-all disabled:opacity-50 animate-pulse"
-                  title={translations[language].wordReimportTitle}
-                >
-                  <Upload size={14} />
-                  {isConverting ? translations[language].converting : translations[language].reimportWord}
-                </button>
-              )}
-              <div className="h-6 w-px bg-gray-200 mx-2" />
-            </>
-          )}
-
-
+          <button
+            onClick={handlePdfUploadTrigger}
+            className="flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-bold text-slate-400 hover:text-white hover:bg-slate-800 transition-all border border-transparent"
+          >
+            <Upload size={18} />
+            {translations[language].insertPdf}
+          </button>
         </div>
       </header>
 
       <div className="flex flex-1 overflow-hidden">
-        {/* Hidden File Input */}
-        <input
-          type="file"
-          ref={fileInputRef}
-          className="hidden"
-          accept="image/*"
-          onChange={handleImageFileChange}
-        />
-        <input
-          type="file"
-          ref={pdfInputRef}
-          className="hidden"
-          accept="application/pdf"
-          onChange={handlePdfFileChange}
-        />
-        <input
-          type="file"
-          ref={wordInputRef}
-          className="hidden"
-          accept=".docx"
-          onChange={handleWordFileChange}
-        />
+        <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleImageFileChange} />
+        <input type="file" ref={pdfInputRef} className="hidden" accept="application/pdf" onChange={handlePdfFileChange} />
+        <input type="file" ref={wordInputRef} className="hidden" accept=".docx" onChange={handleWordFileChange} />
 
-        {/* Left Toolbar */}
         <Toolbar
           language={language}
           onAddElement={handleAddElement}
@@ -1337,7 +1022,6 @@ const App: React.FC = () => {
           onAddImage={handleImageUploadTrigger}
           onAddPdf={handlePdfUploadTrigger}
           onAddCamera={startCamera}
-          // Eraser removed
           onTogglePen={handleTogglePen}
           penActive={editorState.penMode}
           onToggleShapes={() => setIsShapeSelectorOpen(!isShapeSelectorOpen)}
@@ -1349,8 +1033,6 @@ const App: React.FC = () => {
           penSize={penSize}
           onUpdatePenSize={setPenSize}
         />
-
-
 
         {isShapeSelectorOpen && (
           <ShapeSelector
@@ -1367,9 +1049,7 @@ const App: React.FC = () => {
           <TableSelector
             language={language}
             onSelect={(rows, cols) => {
-              const tableData = Array.from({ length: rows }).map(() =>
-                Array.from({ length: cols }).map(() => '')
-              );
+              const tableData = Array.from({ length: rows }).map(() => Array.from({ length: cols }).map(() => ''));
               handleAddElement('table', '', {}, tableData);
             }}
             onClose={() => setIsTableSelectorOpen(false)}
@@ -1380,11 +1060,9 @@ const App: React.FC = () => {
           <SignatureModal
             language={language}
             onSave={(data, w, h) => {
-              // Scale signature to a reasonable width (e.g., 150)
               const targetWidth = 150;
               const ratio = w ? (targetWidth / w) : 1;
               const targetHeight = h ? (h * ratio) : 50;
-
               handleAddElement('image', data, { isSignature: true }, undefined, targetWidth, targetHeight);
               setIsSignatureModalOpen(false);
             }}
@@ -1392,73 +1070,33 @@ const App: React.FC = () => {
           />
         )}
 
-        {/* Main Canvas Area */}
         <main className={`relative flex-1 overflow-auto canvas-bg p-8 ${editorState.eraserMode ? 'cursor-crosshair' : ''}`}>
           <div className="flex flex-col items-center min-w-max min-h-full">
-            {/* Page Navigation & Zoom - REDESIGNED for Vertical Scroll */}
             <div className="sticky top-0 mb-6 flex items-center gap-4 rounded-full bg-white/80 backdrop-blur-sm border border-gray-200 px-4 py-2 shadow-sm z-40">
               <span className="text-sm font-medium text-gray-600">{editorState.pages.length} {translations[language].pagesPlural}</span>
               <div className="h-4 w-px bg-gray-300" />
-
-              {/* Zoom Controls */}
-              <button
-                onClick={() => setEditorState(prev => ({ ...prev, zoom: Math.max(150, prev.zoom - 10) }))}
-                className="p-1 hover:bg-gray-100 rounded-full text-gray-600"
-                title={translations[language].zoomOut}
-              >
-                -
-              </button>
-              <div className="flex items-center gap-2 min-w-[3rem] justify-center">
-                <span className="text-xs font-medium text-gray-500">{editorState.zoom}%</span>
-              </div>
-              <button
-                onClick={() => setEditorState(prev => ({ ...prev, zoom: Math.min(200, prev.zoom + 10) }))}
-                className="p-1 hover:bg-gray-100 rounded-full text-gray-600"
-                title={translations[language].zoomIn}
-              >
-                +
-              </button>
-
+              <button onClick={() => setEditorState(prev => ({ ...prev, zoom: Math.max(150, prev.zoom - 10) }))} className="p-1 hover:bg-gray-100 rounded-full text-gray-600">-</button>
+              <span className="text-xs font-medium text-gray-500 w-12 text-center">{editorState.zoom}%</span>
+              <button onClick={() => setEditorState(prev => ({ ...prev, zoom: Math.min(200, prev.zoom + 10) }))} className="p-1 hover:bg-gray-100 rounded-full text-gray-600">+</button>
               <div className="h-4 w-px bg-gray-300 mx-2" />
-
-              <button
-                onClick={() => setEditorState(INITIAL_STATE)}
-                className="flex items-center justify-center h-10 w-10 rounded-full bg-red-100 text-red-600 hover:bg-red-600 hover:text-white transition-all shadow-sm"
-                title={translations[language].closeFile}
-              >
-                <X size={24} />
-              </button>
-
+              <button onClick={() => setEditorState(INITIAL_STATE)} className="p-2 rounded-full bg-red-100 text-red-600 hover:bg-red-600 hover:text-white transition-all"><X size={20} /></button>
               <div className="h-4 w-px bg-gray-300 mx-2" />
-
               <button
                 onClick={handleCheckoutAndExport}
                 disabled={isProcessingPayment}
-                className={`flex items-center gap-2 rounded-full px-6 py-2 text-sm font-bold text-white shadow-md transition-all transform ${isProcessingPayment
-                  ? 'bg-gray-400 cursor-not-allowed'
-                  : 'bg-gradient-to-r from-blue-600 to-indigo-700 hover:from-blue-700 hover:to-indigo-800 hover:shadow-lg hover:-translate-y-0.5'
-                  }`}
+                className={`flex items-center gap-2 rounded-full px-6 py-2 text-sm font-bold text-white shadow-md transition-all ${isProcessingPayment ? 'bg-gray-400 cursor-not-allowed' : 'bg-gradient-to-r from-blue-600 to-indigo-700 hover:shadow-lg'}`}
               >
-                {isProcessingPayment ? (
-                  <>
-                    <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                    </svg>
-                    A processar...
-                  </>
-                ) : (
-                  <>
-                    <Download size={18} />
-                    {translations[language].exportPdf}
-                  </>
-                )}
+                {isProcessingPayment ? 'Processing...' : translations[language].exportPdf}
               </button>
             </div>
 
-            <div className="flex flex-col gap-8 pb-20">
+            <div className="flex flex-col gap-10 pb-20">
               {editorState.pages.map((page) => (
-                <div key={page.id} className="shadow-lg transition-transform" onClick={() => setEditorState(prev => ({ ...prev, currentPageId: page.id }))}>
+                <div
+                  key={page.id}
+                  className={`relative transition-all duration-500 rounded-[2px] ${editorState.currentPageId === page.id ? 'shadow-[0_20px_60px_rgba(0,0,0,0.15)] ring-1 ring-indigo-500/20' : 'shadow-xl shadow-slate-200 hover:shadow-2xl'}`}
+                  onClick={() => setEditorState(prev => ({ ...prev, currentPageId: page.id }))}
+                >
                   <EditorCanvas
                     language={language}
                     page={page}
@@ -1468,18 +1106,7 @@ const App: React.FC = () => {
                     isCropping={isCropping}
                     onCropConfirm={(cropBox) => {
                       if (editorState.selectedElementId) {
-                        handleUpdateElement(page.id, editorState.selectedElementId, {
-                          x: cropBox.x,
-                          y: cropBox.y,
-                          width: cropBox.width,
-                          height: cropBox.height,
-                          crop: {
-                            x: cropBox.x,
-                            y: cropBox.y,
-                            width: cropBox.width,
-                            height: cropBox.height
-                          }
-                        });
+                        handleUpdateElement(page.id, editorState.selectedElementId, { x: cropBox.x, y: cropBox.y, width: cropBox.width, height: cropBox.height, crop: cropBox });
                         setIsCropping(false);
                       }
                     }}
@@ -1489,46 +1116,32 @@ const App: React.FC = () => {
                     penMode={editorState.penMode}
                     onUpdateDrawing={handleUpdateDrawing}
                     onErase={(x, y, w, h) => handleErase(page.id, x, y, w, h)}
-                    onTriggerElementImageUpload={(id) => handleImageUploadTrigger(id)}
-                    onTriggerCamera={(id) => startCamera(id)}
+                    onTriggerElementImageUpload={handleImageUploadTrigger}
+                    onTriggerCamera={startCamera}
                     penSize={penSize}
                   />
                   <div className="flex flex-col items-center gap-2 mt-4">
                     <div className="text-xs text-gray-400 font-medium uppercase tracking-widest">{translations[language].page} {page.pageNumber}</div>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleAddPage();
-                      }}
-                      className="group flex items-center gap-2 px-6 py-2.5 bg-white text-indigo-600 rounded-full text-xs font-bold hover:bg-indigo-600 hover:text-white transition-all shadow-md border border-indigo-100"
-                    >
-                      <Plus size={16} className="group-hover:rotate-90 transition-transform" />
+                    <button onClick={(e) => { e.stopPropagation(); handleAddPage(); }} className="px-6 py-2.5 bg-white text-indigo-600 rounded-full text-xs font-bold hover:bg-indigo-600 hover:text-white transition-all shadow-md border border-indigo-100">
                       {translations[language].addPage}
                     </button>
                   </div>
                 </div>
               ))}
             </div>
-
           </div>
         </main>
 
-        {/* Right Sidebar: Properties & AI */}
         <div className="flex h-full">
           {(() => {
-            const selectedElement = editorState.pages
-              .flatMap(p => p.elements)
-              .find(el => el.id === editorState.selectedElementId);
-
+            const selectedElement = editorState.pages.flatMap(p => p.elements).find(el => el.id === editorState.selectedElementId);
             return (
               <PropertiesSidebar
                 language={language}
                 element={selectedElement}
                 onUpdate={(updates) => {
                   const pageId = editorState.pages.find(p => p.elements.some(el => el.id === editorState.selectedElementId))?.id;
-                  if (editorState.selectedElementId && pageId) {
-                    handleUpdateElement(pageId, editorState.selectedElementId, updates);
-                  }
+                  if (editorState.selectedElementId && pageId) handleUpdateElement(pageId, editorState.selectedElementId, updates);
                 }}
                 onDelete={handleDeleteElement}
                 onBringToFront={handleBringToFront}
@@ -1539,68 +1152,39 @@ const App: React.FC = () => {
             );
           })()}
         </div>
-      </div >
+      </div>
 
-      {/* Footer Info */}
-      < footer className="flex h-8 items-center justify-between border-t bg-white px-4 text-[10px] text-gray-400" >
+      <footer className="flex h-8 items-center justify-between border-t bg-white px-4 text-[10px] text-gray-400">
         <div className="flex gap-4">
           <span>{translations[language].paperSize}</span>
           <span>{translations[language].dpi}</span>
           <span>{translations[language].colorProfile}</span>
         </div>
         <div>{translations[language].version}</div>
-      </footer >
+      </footer>
 
-      {/* Templates Modal */}
-      {
-        isTemplateSelectorOpen && (
-          <TemplateSelector
-            language={language}
-            onSelectTemplate={handleApplyTemplate}
-            onClose={() => setIsTemplateSelectorOpen(false)}
-          />
-        )
-      }
-
-      {/* Resume Wizard */}
-      {
-        isWizardOpen && (
-          <ResumeWizard
-            language={language}
-            onComplete={handleWizardComplete}
-            onClose={() => setIsWizardOpen(false)}
-          />
-        )
-      }
-
-      {/* Camera Modal */}
-      {
-        showCamera && (
-          <div className="fixed inset-0 z-[80] bg-black bg-opacity-90 flex flex-col items-center justify-center">
-            <div className="relative w-full max-w-lg bg-black rounded-lg overflow-hidden border border-gray-800">
-              <video ref={videoRef} className="w-full h-auto" autoPlay playsInline muted />
-              <canvas ref={canvasRef} className="hidden" />
-
-              <div className="absolute bottom-4 left-0 right-0 flex justify-center gap-4">
-                <button
-                  onClick={stopCamera}
-                  className="px-6 py-2 bg-gray-600 text-white rounded-full font-bold hover:bg-gray-700"
-                >
-                  {translations[language].cancel}
-                </button>
-                <button
-                  onClick={capturePhoto}
-                  className="px-6 py-2 bg-white text-black rounded-full font-bold hover:bg-gray-100 flex items-center gap-2"
-                >
-                  <Camera size={18} />
-                  {translations[language].capture}
-                </button>
-              </div>
+      {isTemplateSelectorOpen && <TemplateSelector language={language} onSelectTemplate={handleApplyTemplate} onClose={() => setIsTemplateSelectorOpen(false)} />}
+      {isWizardOpen && <ResumeWizard language={language} onComplete={handleWizardComplete} onClose={() => setIsWizardOpen(false)} />}
+      {showCamera && (
+        <div className="fixed inset-0 z-[80] bg-black bg-opacity-90 flex flex-col items-center justify-center">
+          <div className="relative w-full max-w-lg bg-black rounded-lg overflow-hidden border border-gray-800">
+            <video ref={videoRef} className="w-full h-auto" autoPlay playsInline muted />
+            <canvas ref={canvasRef} className="hidden" />
+            <div className="absolute bottom-4 left-0 right-0 flex justify-center gap-4">
+              <button onClick={stopCamera} className="px-6 py-2 bg-gray-600 text-white rounded-full font-bold hover:bg-gray-700">{translations[language].cancel}</button>
+              <button onClick={capturePhoto} className="px-6 py-2 bg-white text-black rounded-full font-bold hover:bg-gray-100 flex items-center gap-2"><Camera size={18} />{translations[language].capture}</button>
             </div>
           </div>
-        )
-      }
-    </div >
+        </div>
+      )}
+      <div id="export-container" style={{ position: 'absolute', top: '-10000px', left: '-10000px', width: '595pt', zIndex: -100 }}>
+        {editorState.pages.map((page) => (
+          <div key={page.id} style={{ pageBreakAfter: 'always', width: '595pt', height: '842pt' }}>
+            <EditorCanvas language={language} page={page} selectedElementId={null} onSelectElement={() => { }} onUpdateElement={() => { }} scale={1.33} isExporting={true} />
+          </div>
+        ))}
+      </div>
+    </div>
   );
 };
 

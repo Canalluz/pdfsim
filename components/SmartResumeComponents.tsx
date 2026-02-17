@@ -1,5 +1,5 @@
 import React from 'react';
-import { Camera, MapPin, Mail, Phone, Globe, Linkedin, Github, Upload, X } from 'lucide-react';
+import { Camera, MapPin, Mail, Phone, Globe, Linkedin, Github, Upload, X, Plus, Check } from 'lucide-react';
 
 // --- Types ---
 interface PhotoConfig {
@@ -32,6 +32,7 @@ interface SmartComponentProps {
     templateId: string;
     data: any; // Flexible data prop
     onUpdate?: (newData: any) => void;
+    onUpdateElement?: (elementId: string, updates: Partial<any>) => void;
     onHeightChange?: (height: number) => void;
     onTriggerImageUpload?: (elementId: string) => void;
     onTriggerCamera?: (elementId: string) => void;
@@ -361,8 +362,27 @@ const StarExperience: React.FC<{ data: any[]; onUpdate?: (newData: any) => void 
 
 // --- Main Smart Components ---
 
-export const ProfessionalPhoto: React.FC<SmartComponentProps & { userImage?: string }> = ({ elementId, templateId, data, userImage, onTriggerImageUpload, onTriggerCamera }) => {
+export const ProfessionalPhoto: React.FC<SmartComponentProps & { userImage?: string, isExporting?: boolean }> = ({ elementId, templateId, data, userImage, onTriggerImageUpload, onTriggerCamera, onUpdateElement, isExporting }) => {
+    const [isAdjusting, setIsAdjusting] = React.useState(false);
+    const [dragStart, setDragStart] = React.useState<{ x: number, y: number } | null>(null);
+    const [imageDims, setImageDims] = React.useState<{ w: number, h: number } | null>(data?.imageDims || null);
+    const imageRef = React.useRef<HTMLImageElement>(null);
+    const containerRef = React.useRef<HTMLDivElement>(null);
+
     const { photoConfig } = data;
+
+    // Priority: userImage prop > data.userImage
+    const propImage = userImage || (data as any)?.userImage || '';
+
+    // Internal state to allow local updates (sanitization) even if parent is read-only (Export Mode)
+    const [internalImage, setInternalImage] = React.useState(propImage);
+
+    // Sync internal state if props change (e.g. undo/redo)
+    React.useEffect(() => {
+        if (propImage !== internalImage && !data.isSanitized) {
+            setInternalImage(propImage);
+        }
+    }, [propImage, internalImage, data.isSanitized]);
 
     // Style configurations based on templateId (Campeão logic)
     const styles: Record<string, string> = {
@@ -375,45 +395,405 @@ export const ProfessionalPhoto: React.FC<SmartComponentProps & { userImage?: str
         'champion-corporate-blue': 'border-0 rounded-none shadow-none', // Simple square photo
     };
 
+    // Get current transforms from data or defaults
+    const transform = data.transform || { scale: 1, x: 0, y: 0 };
+    const { scale = 1, x = 0, y = 0 } = transform;
+
+    // Handle clicking outside to close adjustment mode
+    React.useEffect(() => {
+        if (!isAdjusting) return;
+
+        const handleClickOutside = (event: MouseEvent) => {
+            if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+                setIsAdjusting(false);
+            }
+        };
+
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, [isAdjusting]);
+
+    const handleStartDrag = (e: React.MouseEvent) => {
+        if (!isAdjusting) return;
+        // Don't start drag if clicking on buttons or slider
+        if ((e.target as HTMLElement).closest('button') || (e.target as HTMLElement).closest('input')) return;
+
+        e.preventDefault();
+        e.stopPropagation();
+        setDragStart({ x: e.clientX, y: e.clientY });
+    };
+
+    const getClampedPosition = (newX: number, newY: number, newScale: number, isFinal: boolean = false) => {
+        if (!containerRef.current || !imageDims) return { x: newX, y: newY };
+
+        const { width: Wc, height: Hc } = containerRef.current.getBoundingClientRect();
+        const { w: Wn, h: Hn } = imageDims;
+
+        // baseScale is the scale needed for the image to perfectly cover the container (like object-fit: cover)
+        const baseScale = Math.max(Wc / Wn, Hc / Hn);
+
+        // Effective dimensions at the current scale factor
+        const Weff = Wn * baseScale * newScale;
+        const Heff = Hn * baseScale * newScale;
+
+        // During adjustment, we allow more spillover to see the context
+        const spilloverMargin = isFinal ? 0 : Math.max(Wc, Hc);
+        const maxX = Math.max(0, (Weff - Wc) / 2 + spilloverMargin);
+        const maxY = Math.max(0, (Heff - Hc) / 2 + spilloverMargin);
+
+        return {
+            x: Math.max(-maxX, Math.min(maxX, newX)),
+            y: Math.max(-maxY, Math.min(maxY, newY))
+        };
+    };
+
+    const handleMouseMove = (e: React.MouseEvent) => {
+        if (!dragStart || !isAdjusting) return;
+        e.preventDefault();
+        e.stopPropagation();
+
+        const dx = e.clientX - dragStart.x;
+        const dy = e.clientY - dragStart.y;
+
+        // Relaxed clamping during adjustment
+        const { x: clampedX, y: clampedY } = getClampedPosition(x + dx, y + dy, scale, false);
+
+        onUpdateElement?.(elementId, {
+            componentData: {
+                ...data,
+                transform: {
+                    ...transform,
+                    x: clampedX,
+                    y: clampedY
+                }
+            }
+        });
+
+        // Update drag start to avoid accumulation errors (delta approach)
+        setDragStart({ x: e.clientX, y: e.clientY });
+    };
+
+    const handleEndDrag = () => {
+        if (!dragStart) return;
+        setDragStart(null);
+
+        // Snap/Clamp on release
+        const { x: clampedX, y: clampedY } = getClampedPosition(x, y, scale, true);
+        onUpdateElement?.(elementId, {
+            componentData: {
+                ...data,
+                transform: {
+                    ...transform,
+                    x: clampedX,
+                    y: clampedY
+                }
+            }
+        });
+    };
+
+    const handleZoomChange = (newScale: number) => {
+        // Relaxed clamping during zoom
+        const { x: clampedX, y: clampedY } = getClampedPosition(x, y, newScale, false);
+
+        onUpdateElement?.(elementId, {
+            componentData: {
+                ...data,
+                transform: {
+                    ...transform,
+                    scale: newScale,
+                    x: clampedX,
+                    y: clampedY
+                }
+            }
+        });
+    };
+
+    const handleToggleAdjust = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        if (isAdjusting) {
+            // APPLY STRICT CLAMPING AND MIN SCALE 1 ON SAVE
+            const finalScale = Math.max(1, scale);
+            const { x: finalX, y: finalY } = getClampedPosition(x, y, finalScale, true);
+
+            // Further strict clamp to ensure no gaps at final scale
+            if (imageDims && containerRef.current) {
+                const { width: Wc, height: Hc } = containerRef.current.getBoundingClientRect();
+                const { w: Wn, h: Hn } = imageDims;
+                const baseScale = Math.max(Wc / Wn, Hc / Hn);
+                const Weff = Wn * baseScale * finalScale;
+                const Heff = Hn * baseScale * finalScale;
+
+                const strictMaxX = Math.max(0, (Weff - Wc) / 2);
+                const strictMaxY = Math.max(0, (Heff - Hc) / 2);
+
+                const sx = Math.max(-strictMaxX, Math.min(strictMaxX, finalX));
+                const sy = Math.max(-strictMaxY, Math.min(strictMaxY, finalY));
+
+                onUpdateElement?.(elementId, {
+                    componentData: {
+                        ...data,
+                        transform: { scale: finalScale, x: sx, y: sy }
+                    }
+                });
+            }
+            setIsAdjusting(false);
+        } else {
+            setIsAdjusting(true);
+        }
+    };
+
+    const handleReset = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        onUpdateElement?.(elementId, {
+            componentData: {
+                ...data,
+                transform: { scale: 1, x: 0, y: 0 }
+            }
+        });
+    };
+
+    // Synchronize image dims if data changes (e.g. from state restoration)
+    React.useEffect(() => {
+        if (data?.imageDims && (!imageDims || imageDims.w !== data.imageDims.w)) {
+            setImageDims(data.imageDims);
+        }
+    }, [data?.imageDims]);
+
+    // Verify and convert image to Base64 if needed (User's definitive solution)
+    // NOW FORCE SANITIZATION even if it's already base64, to ensure a clean buffer
+    React.useEffect(() => {
+        // Use internalImage for checking
+        if (internalImage && !data.isSanitized) {
+            const img = new Image();
+            // ONLY set crossOrigin if it is NOT a data URL
+            if (!internalImage.startsWith('data:')) {
+                img.crossOrigin = 'anonymous';
+            }
+            img.src = internalImage;
+            img.onload = () => {
+                const canvas = document.createElement('canvas');
+                canvas.width = img.naturalWidth;
+                canvas.height = img.naturalHeight;
+                const ctx = canvas.getContext('2d');
+                if (ctx) {
+                    ctx.drawImage(img, 0, 0);
+                    // Use standard PNG to avoid compression artifacts
+                    const dataURL = canvas.toDataURL('image/png');
+
+                    // Critical: Update LOCAL state first to ensure rendering
+                    setInternalImage(dataURL);
+
+                    // Update GLOBAL state (might fail in Export Mode, but that's okay now)
+                    onUpdateElement?.(elementId, {
+                        componentData: {
+                            ...data,
+                            userImage: dataURL,
+                            isSanitized: true
+                        }
+                    });
+                }
+            };
+            // Handle error by marking as sanitized to stop loop, but keeping original
+            img.onerror = () => {
+                onUpdateElement?.(elementId, {
+                    componentData: { ...data, isSanitized: true }
+                });
+            };
+        }
+    }, [internalImage, data.isSanitized, elementId]);
+
+    const handleImageLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
+        const img = e.currentTarget;
+        const dims = { w: img.naturalWidth, h: img.naturalHeight };
+
+        // Only update if dimensions changed or we need to persist them
+        if (!imageDims || imageDims.w !== dims.w || imageDims.h !== dims.h) {
+            setImageDims(dims);
+            onUpdateElement?.(elementId, {
+                componentData: {
+                    ...data,
+                    imageDims: dims
+                }
+            });
+        }
+    };
+
     const containerStyle = styles[templateId || 'champion-classic-elegant'] || '';
 
+    // Calculate the base cover scale for the style
+    const cw = containerRef.current?.offsetWidth || 0;
+    const ch = containerRef.current?.offsetHeight || 0;
+    // Ensure we have dimensions to avoid division by zero or NaN
+    const hasDims = imageDims && imageDims.w > 0 && imageDims.h > 0 && cw > 0 && ch > 0;
+
+    // Base scale to cover the container
+    const bScale = hasDims
+        ? Math.max(cw / imageDims!.w, ch / imageDims!.h)
+        : 1;
+
+    // Calculate final rendered dimensions and position
+    const finalW = hasDims ? imageDims!.w * bScale * scale : 0;
+    const finalH = hasDims ? imageDims!.h * bScale * scale : 0;
+    const left = hasDims ? (cw - finalW) / 2 + x : 0;
+    const top = hasDims ? (ch - finalH) / 2 + y : 0;
+
+    // Export Mode: Use background-image for maximum html2canvas compatibility
+    if (isExporting && internalImage) {
+        return (
+            <div
+                ref={containerRef}
+                className={`relative w-full h-full overflow-hidden ${containerStyle}`}
+                style={{
+                    backgroundImage: `url(${internalImage})`,
+                    backgroundSize: 'cover',
+                    backgroundPosition: 'center',
+                    backgroundRepeat: 'no-repeat',
+                    zIndex: 50,
+                    // Force background print
+                    WebkitPrintColorAdjust: 'exact',
+                    printColorAdjust: 'exact'
+                }}
+            />
+        );
+    }
+
     return (
-        <div className="relative group w-full h-full flex items-center justify-center p-2">
-            <div className={`relative overflow-hidden w-full h-full flex items-center justify-center ${containerStyle}`}>
-                {userImage ? (
-                    <img src={userImage} alt="Foto Profissional" className="w-full h-full object-cover" draggable={false} />
+        <div ref={containerRef} className="relative group w-full h-full flex flex-col items-center justify-center">
+            <div
+                className={`relative w-full h-full ${isAdjusting ? '' : 'overflow-hidden'} flex items-center justify-center ${containerStyle} ${isAdjusting ? 'ring-4 ring-indigo-500/50 cursor-move shadow-2xl z-10' : ''}`}
+                onMouseDown={handleStartDrag}
+                onMouseMove={handleMouseMove}
+                onMouseUp={handleEndDrag}
+                onMouseLeave={handleEndDrag}
+            >
+                {/* Crop Guide Overlay when adjusting */}
+                {isAdjusting && (
+                    <div className="absolute inset-0 pointer-events-none ring-[100vw] ring-black/40 z-20" />
+                )}
+                {internalImage ? (
+                    <img
+                        ref={imageRef}
+                        src={internalImage}
+                        alt="Foto Profissional"
+                        onLoad={handleImageLoad}
+                        width={finalW}
+                        height={finalH}
+                        className="max-w-none block absolute"
+                        style={{
+                            width: `${finalW}px`,
+                            height: `${finalH}px`,
+                            left: `${left}px`,
+                            top: `${top}px`,
+                            pointerEvents: 'none',
+                            zIndex: 50, // Force on top for capture
+                            transition: isAdjusting ? 'none' : 'all 0.2s ease-out'
+                        }}
+                        draggable={false}
+                        crossOrigin="anonymous"
+                    />
                 ) : (
                     <div
-                        onClick={() => onTriggerImageUpload?.(elementId)}
-                        className="flex flex-col items-center justify-center text-gray-500 p-2 text-center w-full h-full bg-slate-50 border-2 border-dashed border-slate-200 cursor-pointer hover:bg-slate-100 transition-colors group"
+                        className="w-full h-full flex flex-col items-center justify-center bg-slate-50 border-2 border-dashed border-slate-200 transition-all p-0.5"
                     >
-                        <Camera size={32} className="mb-2 text-slate-300 group-hover:text-indigo-500 transition-colors" />
-                        <span className="text-[10px] uppercase font-black tracking-widest mb-3 text-slate-400 group-hover:text-indigo-600 transition-colors">Inserir Foto</span>
-                        <div className="flex gap-3">
+                        <div className="flex flex-col items-center mb-1.5 text-center pointer-events-none">
+                            <Camera size={20} className="text-slate-300" />
+                            <span className="text-[8px] uppercase font-black tracking-tighter text-slate-400 mt-1">Inserir Foto</span>
+                        </div>
+
+                        <div className="flex flex-wrap items-center justify-center gap-1 max-w-full">
                             <button
                                 onClick={(e) => {
                                     e.stopPropagation();
                                     onTriggerImageUpload?.(elementId);
                                 }}
-                                className="p-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-full transition-all shadow-md hover:scale-110"
+                                className="flex flex-col items-center justify-center w-10 h-10 bg-indigo-600 text-white rounded-lg shadow-md hover:bg-indigo-700 hover:scale-105 active:scale-95 transition-all"
                                 title="Upload"
                             >
-                                <Upload size={16} />
+                                <Upload size={12} />
+                                <span className="text-[7px] font-black uppercase mt-0.5">Upload</span>
                             </button>
                             <button
                                 onClick={(e) => {
                                     e.stopPropagation();
                                     onTriggerCamera?.(elementId);
                                 }}
-                                className="p-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-full transition-all shadow-md hover:scale-110"
+                                className="flex flex-col items-center justify-center w-10 h-10 bg-emerald-600 text-white rounded-lg shadow-md hover:bg-emerald-700 hover:scale-105 active:scale-95 transition-all"
                                 title="Câmera"
                             >
-                                <Camera size={16} />
+                                <Camera size={12} />
+                                <span className="text-[7px] font-black uppercase mt-0.5">Câmera</span>
                             </button>
                         </div>
                     </div>
                 )}
             </div>
+
+            {/* Adjustment Controls - Sleek bar only on hover */}
+            {internalImage && (
+                <div className={`absolute -top-12 inset-x-0 z-[10000] flex justify-center pointer-events-auto transition-all duration-300 ${isAdjusting ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 translate-y-2 group-hover:translate-y-0'}`}>
+                    <div className="flex items-center gap-1.5 p-1 bg-white/95 backdrop-blur-md rounded-full shadow-xl border border-slate-200">
+                        <button
+                            onClick={handleToggleAdjust}
+                            className={`flex items-center gap-2 px-3 py-1.5 rounded-full transition-all text-xs font-bold ${isAdjusting ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-600 hover:bg-slate-100'}`}
+                        >
+                            {isAdjusting ? <Check size={14} /> : <Plus size={14} />}
+                            <span>{isAdjusting ? 'Salvar' : 'Ajustar'}</span>
+                        </button>
+
+                        {!isAdjusting && (
+                            <div className="flex items-center bg-slate-100/50 rounded-full p-0.5 ml-1">
+                                <button
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        onTriggerImageUpload?.(elementId);
+                                    }}
+                                    className="flex items-center gap-2 px-3 py-1.5 text-slate-600 hover:bg-white hover:text-indigo-600 hover:shadow-sm rounded-full transition-all text-[10px] font-bold"
+                                    title="Upload Foto"
+                                >
+                                    <Upload size={14} />
+                                    <span>Upload</span>
+                                </button>
+                                <button
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        onTriggerCamera?.(elementId);
+                                    }}
+                                    className="flex items-center gap-2 px-3 py-1.5 text-slate-600 hover:bg-white hover:text-emerald-600 hover:shadow-sm rounded-full transition-all text-[10px] font-bold"
+                                    title="Foto da Câmera"
+                                >
+                                    <Camera size={14} />
+                                    <span>Câmera</span>
+                                </button>
+                            </div>
+                        )}
+
+                        {isAdjusting && (
+                            <div className="flex items-center gap-3 px-3 border-l border-slate-200 ml-1">
+                                <div className="flex items-center gap-2">
+                                    <button
+                                        onClick={(e) => { e.stopPropagation(); handleZoomChange(Math.max(1, scale - 0.1)); }}
+                                        className="w-6 h-6 flex items-center justify-center bg-slate-100 rounded-full text-slate-600 hover:bg-indigo-50 hover:text-indigo-600 transition-colors"
+                                    >-</button>
+                                    <input
+                                        type="range" min="0.5" max="5" step="0.01" value={scale}
+                                        onChange={(e) => { e.stopPropagation(); handleZoomChange(parseFloat(e.target.value)); }}
+                                        className="w-20 h-1 appearance-none bg-slate-200 rounded-full cursor-pointer accent-indigo-600"
+                                    />
+                                    <button
+                                        onClick={(e) => { e.stopPropagation(); handleZoomChange(Math.min(5, scale + 0.1)); }}
+                                        className="w-6 h-6 flex items-center justify-center bg-slate-100 rounded-full text-slate-600 hover:bg-indigo-50 hover:text-indigo-600 transition-colors"
+                                    >+</button>
+                                </div>
+                                <span className="text-[10px] font-black text-indigo-700 min-w-[35px]">{Math.round(scale * 100)}%</span>
+                                <button
+                                    onClick={handleReset}
+                                    className="text-[9px] font-black text-rose-500 hover:text-rose-600 uppercase"
+                                >Reset</button>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
 
             {/* Tooltip on Hover */}
             {photoConfig?.recommendation && (
