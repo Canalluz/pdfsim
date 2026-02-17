@@ -55,6 +55,7 @@ import TableSelector from './components/TableSelector';
 import SignatureModal from './components/SignatureModal';
 import { Language, translations } from './utils/i18n';
 import { saveToIndexedDB, getFromIndexedDB } from './utils/storage';
+import { pingBackend, fetchWithRetry } from './utils/api';
 
 const App: React.FC = () => {
   const [editorState, setEditorState] = useState<EditorState>(() => {
@@ -114,6 +115,11 @@ const App: React.FC = () => {
     }, 1000); // 1s debounce
     return () => clearTimeout(saveState);
   }, [editorState]);
+
+  // Silent wake-up to minimize Render "cold start" delay
+  useEffect(() => {
+    pingBackend();
+  }, []);
 
   // GLOBAL EXPORT HANDLER (Effect)
   useEffect(() => {
@@ -703,20 +709,34 @@ const App: React.FC = () => {
 
       let res;
       try {
-        res = await fetch(`${apiUrl}/create-checkout-session`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            priceId: 'price_1Qv3xMBy8vR5Pmxm0Vz12345',
-            origin: window.location.origin,
-            email: 'user_email_placeholder@example.com'
-          })
-        });
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('TIMEOUT')), 15000)
+        );
+
+        res = await Promise.race([
+          fetchWithRetry(`${apiUrl}/create-checkout-session`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              priceId: 'price_1Qv3xMBy8vR5Pmxm0Vz12345',
+              origin: window.location.origin,
+              email: 'user_email_placeholder@example.com'
+            })
+          }),
+          timeoutPromise
+        ]) as Response;
+
       } catch (fetchErr: any) {
         console.error('Network Error:', fetchErr);
+        const isTimeout = fetchErr.message === 'TIMEOUT';
+
         throw new Error(language === 'pt'
-          ? `Erro de Conexão: O servidor em ${apiUrl} não pôde ser alcançado. Verifique se o backend está rodando.`
-          : `Connection Error: Could not reach server at ${apiUrl}. Please ensure the backend is running.`);
+          ? isTimeout
+            ? "O servidor está demorando um pouco para iniciar (cold start). Por favor, aguarde 15 segundos e tente novamente."
+            : `Erro de Conexão: O servidor em ${apiUrl} não pôde ser alcançado. Verifique sua internet ou tente novamente.`
+          : isTimeout
+            ? "Server is taking a while to start (cold start). Please wait 15 seconds and try again."
+            : `Connection Error: Could not reach server at ${apiUrl}. Please check your internet or try again.`);
       }
 
       if (!res.ok) {
