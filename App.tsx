@@ -668,7 +668,8 @@ const App: React.FC = () => {
       sessionStorage.setItem('pdfsim_export_backup', JSON.stringify(editorState));
       localStorage.setItem('pdfsim_export_backup', JSON.stringify(editorState));
 
-      const res = await fetch('http://127.0.0.1:5000/create-checkout-session', {
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://127.0.0.1:5000';
+      const res = await fetch(`${apiUrl}/create-checkout-session`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
