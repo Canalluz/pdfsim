@@ -100,11 +100,15 @@ const Toolbar: React.FC<ToolbarProps> = ({
                   <button
                     onClick={item.action}
                     className={`w-full group flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 border ${item.highlight
-                      ? 'bg-gradient-to-br from-indigo-600 to-violet-700 border-indigo-400/30 text-white shadow-lg shadow-indigo-600/20 scale-[1.02]'
+                      ? item.id === 'layout'
+                        ? 'bg-gradient-to-br from-amber-500 to-orange-600 border-amber-400/30 text-white shadow-lg shadow-amber-600/30 scale-[1.05]'
+                        : 'bg-gradient-to-br from-indigo-600 to-violet-700 border-indigo-400/30 text-white shadow-lg shadow-indigo-600/20 scale-[1.02]'
                       : 'bg-transparent border-transparent hover:bg-slate-900 text-slate-400 hover:text-slate-100'
                       }`}
                   >
-                    <div className={`p-1.5 rounded-lg transition-all duration-200 ${item.highlight ? 'bg-white/10 text-white' : 'bg-slate-900 border border-slate-800 text-slate-500 group-hover:text-white group-hover:border-slate-700'}`}>
+                    <div className={`p-1.5 rounded-lg transition-all duration-200 ${item.highlight
+                      ? item.id === 'layout' ? 'bg-white/20 text-white' : 'bg-white/10 text-white'
+                      : 'bg-slate-900 border border-slate-800 text-slate-500 group-hover:text-white group-hover:border-slate-700'}`}>
                       {item.icon}
                     </div>
                     <div className="text-left flex-1">
