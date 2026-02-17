@@ -701,52 +701,15 @@ const App: React.FC = () => {
       // Always save to IndexedDB as it's the most robust for large data
       await saveToIndexedDB('pdfsim_export_backup', editorState);
 
-      let apiUrl = import.meta.env.VITE_API_URL || 'http://127.0.0.1:5000';
-      // Remove trailing slash if present to avoid double slashes
-      if (apiUrl.endsWith('/')) apiUrl = apiUrl.slice(0, -1);
-
-      console.log('Initiating checkout with API:', apiUrl);
-
-      let res;
-      try {
-        const timeoutPromise = new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('TIMEOUT')), 15000)
-        );
-
-        res = await Promise.race([
-          fetchWithRetry(`${apiUrl}/create-checkout-session`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              priceId: 'price_1Qv3xMBy8vR5Pmxm0Vz12345',
-              origin: window.location.origin,
-              email: 'user_email_placeholder@example.com'
-            })
-          }),
-          timeoutPromise
-        ]) as Response;
-
-      } catch (fetchErr: any) {
-        console.error('Network Error:', fetchErr);
-        const isTimeout = fetchErr.message === 'TIMEOUT';
-
+      // Redirect directly to Stripe Payment Link (Professional Architecture)
+      const stripeLink = import.meta.env.VITE_STRIPE_PAYMENT_LINK;
+      if (stripeLink) {
+        window.location.href = stripeLink;
+      } else {
         throw new Error(language === 'pt'
-          ? isTimeout
-            ? "O servidor está demorando um pouco para iniciar (cold start). Por favor, aguarde 15 segundos e tente novamente."
-            : `Erro de Conexão: O servidor em ${apiUrl} não pôde ser alcançado. Verifique sua internet ou tente novamente.`
-          : isTimeout
-            ? "Server is taking a while to start (cold start). Please wait 15 seconds and try again."
-            : `Connection Error: Could not reach server at ${apiUrl}. Please check your internet or try again.`);
+          ? 'Link de pagamento não configurado.'
+          : 'Payment link not configured.');
       }
-
-      if (!res.ok) {
-        const errorText = await res.text();
-        throw new Error(`Server Error ${res.status}: ${errorText}`);
-      }
-
-      const data = await res.json();
-      if (data.url) window.location.href = data.url;
-      else throw new Error('No checkout URL returned');
 
     } catch (err: any) {
       console.error('Checkout Error:', err);
