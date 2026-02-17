@@ -728,7 +728,7 @@ const App: React.FC = () => {
 
       // Redirect directly to Stripe Payment Link (Professional Architecture)
       // Fallback order: import.meta.env -> process.env -> Hardcoded fallback (user requested)
-      const STABLE_STRIPE_LINK = 'https://buy.stripe.com/test_3cIbJ2drH3iVgVk8MU5c400';
+      const STABLE_STRIPE_LINK = 'https://buy.stripe.com/3cIbJ2drH3iVgVk8MU5c400';
       const stripeLink = import.meta.env.VITE_STRIPE_PAYMENT_LINK ||
         (process.env as any).VITE_STRIPE_PAYMENT_LINK ||
         STABLE_STRIPE_LINK;
