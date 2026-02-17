@@ -117,7 +117,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
                       {item.icon}
                     </div>
                     <div className="text-left flex-1">
-                      <span className={`block text-[13px] font-bold tracking-tight ${item.id === 'layout' && !item.highlight ? 'text-amber-500/90' : ''}`}>
+                      <span className={`block text-[13px] font-bold tracking-tight ${item.id === 'layout' && !item.highlight ? 'text-indigo-400' : ''}`}>
                         {item.label}
                       </span>
                     </div>
