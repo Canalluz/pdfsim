@@ -668,20 +668,36 @@ const App: React.FC = () => {
       sessionStorage.setItem('pdfsim_export_backup', JSON.stringify(editorState));
       localStorage.setItem('pdfsim_export_backup', JSON.stringify(editorState));
 
-      const apiUrl = import.meta.env.VITE_API_URL || 'http://127.0.0.1:5000';
+      let apiUrl = import.meta.env.VITE_API_URL || 'http://127.0.0.1:5000';
+      // Remove trailing slash if present to avoid double slashes
+      if (apiUrl.endsWith('/')) apiUrl = apiUrl.slice(0, -1);
+
+      console.log('Initiating checkout with API:', apiUrl);
+
       const res = await fetch(`${apiUrl}/create-checkout-session`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           priceId: 'price_1Qv3xMBy8vR5Pmxm0Vz12345',
-          origin: window.location.origin // Dynamic return URL to fix connection errors
+          origin: window.location.origin,
+          email: 'user_email_placeholder@example.com' // Optional: gather real email if available
         })
       });
+
+      if (!res.ok) {
+        const errorText = await res.text();
+        throw new Error(`Server Error ${res.status}: ${errorText}`);
+      }
+
       const data = await res.json();
       if (data.url) window.location.href = data.url;
-    } catch (err) {
-      console.error(err);
-      alert(language === 'pt' ? 'Erro ao iniciar checkout.' : 'Error starting checkout.');
+      else throw new Error('No checkout URL returned');
+
+    } catch (err: any) {
+      console.error('Checkout Error:', err);
+      alert(language === 'pt'
+        ? `Erro detalhado: ${err.message}`
+        : `Detailed Error: ${err.message}`);
     } finally {
       setIsProcessingPayment(false);
     }

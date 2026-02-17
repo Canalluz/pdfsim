@@ -6,14 +6,8 @@ from pdf_editor import AdvancedPDFEditor
 from word_converter import WordConverter
 
 app = Flask(__name__)
-# Allow specific origins for production
-CORS(app, resources={r"/*": {"origins": [
-    "http://localhost:5173",
-    "http://localhost:3000",
-    "https://pdfsim.com",
-    "https://www.pdfsim.com",
-    "https://pdfsim-git-main-seguro-defesa-facil.vercel.app"
-]}})
+# Allow ALL origins temporarily to debug connection issues
+CORS(app, resources={r"/*": {"origins": "*"}})
 
 UPLOAD_FOLDER = 'uploads'
 WORD_FOLDER = 'word_files'
