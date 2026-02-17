@@ -31,10 +31,10 @@ const TemplatePreview: React.FC<TemplatePreviewProps> = ({ template, scale = 0.2
             boxShadow: el.style.boxShadow,
             background: el.style.background,
             whiteSpace: 'pre-wrap',
-            zIndex: el.type === 'image' || el.type === 'shape' ? 0 : 10,
+            zIndex: el.type === 'image' || el.type === 'shape' || (el.type === 'smart-element' && el.content === 'ProfessionalPhoto') ? 0 : 10,
             overflow: 'hidden',
             // Simple flex centering if needed, but text usually isn't flexed in this editor model
-            display: el.type === 'shape' ? 'block' : 'flex',
+            display: el.type === 'shape' || (el.type === 'smart-element' && el.content === 'ProfessionalPhoto') ? 'block' : 'flex',
             alignItems: 'center',
             justifyContent: el.style.textAlign === 'center' ? 'center' : (el.style.textAlign === 'right' ? 'flex-end' : 'flex-start'),
         };
@@ -52,6 +52,41 @@ const TemplatePreview: React.FC<TemplatePreviewProps> = ({ template, scale = 0.2
 
         if (el.type === 'shape') {
             return <div key={el.id} style={style} />;
+        }
+
+        if (el.type === 'smart-element') {
+            if (el.content === 'ProfessionalPhoto') {
+                return (
+                    <div key={el.id} style={{ ...style, display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#e2e8f0', border: '2px dashed #cbd5e1' }}>
+                        <div style={{ width: '40%', height: '40%', borderRadius: '50%', backgroundColor: '#cbd5e1' }} />
+                    </div>
+                );
+            }
+            if (el.content === 'ResumeSection') {
+                // Mock content for resume section
+                return (
+                    <div key={el.id} style={{ ...style, display: 'block', alignItems: 'flex-start' }}>
+                        {/* Mock Title */}
+                        {el.componentData?.section?.title && (
+                            <div style={{
+                                fontWeight: 'bold',
+                                marginBottom: '4px',
+                                borderBottom: '1px solid currentColor',
+                                paddingBottom: '2px',
+                                fontSize: '1.1em'
+                            }}>
+                                {el.componentData.section.title}
+                            </div>
+                        )}
+                        {/* Mock Lines */}
+                        <div style={{ opacity: 0.7, fontSize: '0.9em' }}>
+                            <div style={{ width: '100%', height: '6px', backgroundColor: 'currentColor', opacity: 0.3, marginBottom: '4px', borderRadius: '2px' }} />
+                            <div style={{ width: '80%', height: '6px', backgroundColor: 'currentColor', opacity: 0.3, marginBottom: '4px', borderRadius: '2px' }} />
+                            <div style={{ width: '90%', height: '6px', backgroundColor: 'currentColor', opacity: 0.3, borderRadius: '2px' }} />
+                        </div>
+                    </div>
+                );
+            }
         }
 
         return (

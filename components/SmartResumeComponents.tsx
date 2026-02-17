@@ -383,23 +383,32 @@ export const ProfessionalPhoto: React.FC<SmartComponentProps & { userImage?: str
                 {userImage ? (
                     <img src={userImage} alt="Foto Profissional" className="w-full h-full object-cover" draggable={false} />
                 ) : (
-                    <div className="flex flex-col items-center justify-center text-white/90 p-2 text-center w-full h-full">
-                        <Camera size={24} className="mb-2" />
-                        <span className="text-[10px] uppercase font-bold tracking-wider mb-3">Foto</span>
-                        <div className="flex gap-2">
+                    <div
+                        onClick={() => onTriggerImageUpload?.(elementId)}
+                        className="flex flex-col items-center justify-center text-gray-500 p-2 text-center w-full h-full bg-slate-50 border-2 border-dashed border-slate-200 cursor-pointer hover:bg-slate-100 transition-colors group"
+                    >
+                        <Camera size={32} className="mb-2 text-slate-300 group-hover:text-indigo-500 transition-colors" />
+                        <span className="text-[10px] uppercase font-black tracking-widest mb-3 text-slate-400 group-hover:text-indigo-600 transition-colors">Inserir Foto</span>
+                        <div className="flex gap-3">
                             <button
-                                onClick={() => onTriggerImageUpload?.(elementId)}
-                                className="p-1.5 bg-white/20 hover:bg-white/40 rounded-full transition-colors"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    onTriggerImageUpload?.(elementId);
+                                }}
+                                className="p-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-full transition-all shadow-md hover:scale-110"
                                 title="Upload"
                             >
-                                <Upload size={14} />
+                                <Upload size={16} />
                             </button>
                             <button
-                                onClick={() => onTriggerCamera?.(elementId)}
-                                className="p-1.5 bg-white/20 hover:bg-white/40 rounded-full transition-colors"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    onTriggerCamera?.(elementId);
+                                }}
+                                className="p-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-full transition-all shadow-md hover:scale-110"
                                 title="Câmera"
                             >
-                                <Camera size={14} />
+                                <Camera size={16} />
                             </button>
                         </div>
                     </div>

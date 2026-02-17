@@ -246,7 +246,11 @@ const EditorCanvas: React.FC<EditorCanvasProps> = ({
     }
 
     if (!element) return;
-    if (element.locked) {
+
+    // Force lock for ProfessionalPhoto to prevent dragging
+    const isProfessionalPhoto = element.type === 'smart-element' && element.content === 'ProfessionalPhoto';
+
+    if (element.locked || isProfessionalPhoto) {
       // Only select, don't allow dragging/resizing
       onSelectElement(element.id);
       return;
@@ -408,7 +412,7 @@ const EditorCanvas: React.FC<EditorCanvasProps> = ({
                 width: `${el.width}px`,
                 height: `${el.height}px`,
                 transform: `rotate(${el.rotation || 0}deg)`,
-                cursor: (eraserMode || el.locked) ? 'default' : 'move',
+                cursor: (eraserMode || el.locked || (el.type === 'smart-element' && el.content === 'ProfessionalPhoto')) ? 'default' : 'move',
                 // STRATIFIED Z-INDEX: 
                 // Backgrounds (5-20), Normal Content (30-40), Selected Content (70)
                 // Eraser Patches MUST be above everything (150+)
@@ -430,20 +434,22 @@ const EditorCanvas: React.FC<EditorCanvasProps> = ({
                       const target = e.target;
                       const originalHeight = target.style.height;
                       target.style.height = 'auto';
-                      const newHeight = Math.max(24, target.scrollHeight + 4);
+                      const newHeight = Math.max(24, target.scrollHeight + 2);
                       target.style.height = originalHeight;
 
-                      if (Math.abs(newHeight - el.height) > 2) {
+                      // Use a larger delta (2px) to prevent tiny rounding jitter from shifting layout
+                      if (Math.abs(newHeight - el.height) > 2.5) {
                         onUpdateElement(el.id, { height: newHeight });
                       }
                     }}
                     onFocus={(e) => {
-                      if (el.content.trim() === '' || el.content === 'Novo Texto') {
+                      if (el.content.trim() === '' || el.content === 'Novo Texto' || el.content.startsWith('[')) {
                         e.target.select();
                       }
                       const target = e.target;
-                      const newHeight = Math.max(24, target.scrollHeight + 4);
-                      if (Math.abs(newHeight - el.height) > 1) {
+                      // Don't auto-update height on focus unless it's genuinely overflowed
+                      if (target.scrollHeight > el.height + 2) {
+                        const newHeight = Math.max(24, target.scrollHeight + 2);
                         onUpdateElement(el.id, { height: newHeight });
                       }
                     }}
@@ -681,7 +687,7 @@ const EditorCanvas: React.FC<EditorCanvasProps> = ({
               )}
 
               {/* Selection Border - Only for non-locked elements */}
-              {selectedElementId === el.id && !el.locked && (
+              {selectedElementId === el.id && !el.locked && !(el.type === 'smart-element' && el.content === 'ProfessionalPhoto') && (
                 <>
                   {/* Floating Toolbar for Text */}
                   {el.type === 'text' && (

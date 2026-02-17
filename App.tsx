@@ -25,7 +25,7 @@ import {
   FileEdit,
   Upload
 } from 'lucide-react';
-import { loadStripe } from '@stripe/stripe-js';
+
 import { EditorElement, PDFPage, EditorState, ElementType } from './types';
 import EditorCanvas from './components/EditorCanvas';
 import PropertiesSidebar from './components/PropertiesSidebar';
@@ -68,6 +68,7 @@ const App: React.FC = () => {
   const [isTableSelectorOpen, setIsTableSelectorOpen] = useState(false);
   const [isSignatureModalOpen, setIsSignatureModalOpen] = useState(false);
   const [penSize, setPenSize] = useState(2);
+  const [isProcessingPayment, setIsProcessingPayment] = useState(false);
 
   // Word Conversion States
   const [isConverting, setIsConverting] = useState(false);
@@ -113,10 +114,11 @@ const App: React.FC = () => {
 
     const headerElements = backgroundElements.filter(el => el.y < 250);
     const topBackgroundHeight = headerElements.reduce((max, el) => Math.max(max, el.y + (el.height || 20)), 0);
-    const REFLOW_MARGIN_TOP = headerElements.length > 0 ? Math.max(MARGIN_TOP + 120, topBackgroundHeight + 20) : MARGIN_TOP;
+    const REFLOW_MARGIN_TOP = headerElements.length > 0 ? Math.max(MARGIN_TOP + 10, topBackgroundHeight + 5) : MARGIN_TOP;
 
     const reflowedPages: PDFPage[] = [];
     let virtualYOffset = 0;
+    let lastPIdx = -1;
 
     allContent.forEach((el) => {
       let vY = el.y + virtualYOffset;
@@ -124,11 +126,16 @@ const App: React.FC = () => {
       let rY = vY % PAGE_HEIGHT;
       const h = el.height || 20;
 
-      if (pIdx > 0 && rY < REFLOW_MARGIN_TOP) {
-        const shift = REFLOW_MARGIN_TOP - rY;
-        virtualYOffset += shift;
-        vY += shift;
-        rY = REFLOW_MARGIN_TOP;
+      // Snapping Logic: If this element is pushed to next page OR starts a new page, 
+      // ensure it doesn't have a giant gap from the top header margin.
+      if (pIdx > lastPIdx || (pIdx > 0 && rY < REFLOW_MARGIN_TOP)) {
+        if (rY !== REFLOW_MARGIN_TOP) {
+          const shift = REFLOW_MARGIN_TOP - rY;
+          virtualYOffset += shift;
+          vY += shift;
+          rY = REFLOW_MARGIN_TOP;
+          pIdx = Math.floor(vY / PAGE_HEIGHT);
+        }
       }
 
       if (rY + h > PAGE_HEIGHT - MARGIN_BOTTOM) {
@@ -150,6 +157,7 @@ const App: React.FC = () => {
         });
       }
       reflowedPages[pIdx].elements.push({ ...el, y: rY });
+      lastPIdx = pIdx;
     });
 
     // Ensure we preserve all original pages if they exceed the content length
@@ -607,20 +615,23 @@ const App: React.FC = () => {
 
 
   // Stripe Payment Integration
-  const [stripePromise] = useState(() => loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY));
-
   const handleCheckoutAndExport = async () => {
-    // 1. Save current state to localStorage to persist across redirect
-    localStorage.setItem('pendingExportState', JSON.stringify({
-      pages: editorState.pages,
-      zoom: editorState.zoom
-    }));
+    if (isProcessingPayment) return;
+    setIsProcessingPayment(true);
 
-    // 2. Create Checkout Session
     try {
-      const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+      // 1. Save minimal state to localStorage (avoid base64 overflow)
+      const stateToSave = {
+        pageCount: editorState.pages.length,
+        timestamp: Date.now()
+      };
+      try {
+        localStorage.setItem('pendingExportState', JSON.stringify(stateToSave));
+      } catch (storageErr) {
+        console.warn('localStorage save failed (likely full), continuing anyway:', storageErr);
+      }
 
-      // Try to find email in content
+      // 2. Find email in document content
       const allText = editorState.pages.flatMap(p => p.elements)
         .filter(el => el.type === 'text')
         .map(el => el.content)
@@ -628,140 +639,162 @@ const App: React.FC = () => {
       const emailMatch = allText.match(/[a-zA-Z0-9._%+-]+@([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}/);
       const userEmail = emailMatch ? emailMatch[0] : null;
 
-      const response = await fetch(`${apiBase}/create-checkout-session`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: userEmail,
-          origin: window.location.origin
-        })
-      });
+      // 3. Create Checkout Session with timeout for Render cold starts
+      const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s timeout
+
+      let response: Response;
+      try {
+        response = await fetch(`${apiBase}/create-checkout-session`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: userEmail || undefined,
+            origin: window.location.origin
+          }),
+          signal: controller.signal
+        });
+      } catch (fetchErr: any) {
+        clearTimeout(timeoutId);
+        if (fetchErr.name === 'AbortError') {
+          throw new Error('O servidor demorou muito a responder. Tente novamente em alguns segundos.');
+        }
+        throw new Error('Não foi possível conectar ao servidor de pagamento. Verifique sua conexão.');
+      }
+      clearTimeout(timeoutId);
 
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ error: 'Erro interno no servidor de pagamento' }));
-        throw new Error(errorData.error || `Erro HTTP: ${response.status}`);
+        const errorData = await response.json().catch(() => ({ error: 'Erro interno no servidor' }));
+        throw new Error(errorData.error || `Erro do servidor: ${response.status}`);
       }
 
       const session = await response.json();
 
-      // 3. Redirect to Stripe (New Way: Standard Redirect)
+      // 4. Redirect to Stripe Checkout
       if (session.url) {
         window.location.href = session.url;
+        return; // Don't reset isProcessingPayment — we're navigating away
       } else {
-        throw new Error('URL de checkout não retornada pelo Stripe.');
+        throw new Error('URL de checkout não retornada pelo servidor.');
       }
     } catch (error) {
-      console.error('Detailed checkout error:', error);
-      alert(error instanceof Error ? `Erro ao conectar com o servidor de pagamento: ${error.message}` : 'Erro crítico ao iniciar pagamento');
+      console.error('Checkout error:', error);
+      alert(error instanceof Error ? error.message : 'Erro ao iniciar pagamento. Tente novamente.');
+      setIsProcessingPayment(false);
     }
   };
 
-  // Check for payment success on load
+  // Helper to convert editor elements to exporter format
+  const mapElementsToExport = useCallback((elements: EditorElement[]) => {
+    const exportLines: any[] = [];
+    const exportShapes: any[] = [];
+    const exportImages: any[] = [];
+
+    elements.forEach(el => {
+      if (el.type === 'text') {
+        exportLines.push({
+          text: el.content,
+          x: el.x,
+          y: el.y,
+          fontSize: el.style.fontSize || 12,
+          fontWeight: el.style.fontWeight,
+          color: el.style.color
+        });
+      } else if (el.type === 'shape') {
+        exportShapes.push({
+          x: el.x,
+          y: el.y,
+          width: el.width,
+          height: el.height,
+          backgroundColor: el.style.backgroundColor,
+          opacity: el.style.opacity
+        });
+      } else if (el.type === 'image') {
+        exportImages.push({
+          x: el.x,
+          y: el.y,
+          width: el.width,
+          height: el.height,
+          src: el.content,
+          opacity: el.style.opacity,
+          rotation: el.rotation
+        });
+      } else if (el.type === 'smart-element') {
+        const content = el.content?.toLowerCase() || '';
+        if (content.includes('photo') && el.componentData?.userImage) {
+          exportImages.push({
+            x: el.x,
+            y: el.y,
+            width: el.width,
+            height: el.height,
+            src: el.componentData.userImage,
+            opacity: el.style.opacity
+          });
+        } else if (content.includes('resumesection') && el.componentData?.section) {
+          const section = el.componentData.section;
+          let currentY = el.y;
+          if (section.title) {
+            exportLines.push({ text: section.title, x: el.x, y: currentY, fontSize: 14, fontWeight: 'bold' });
+            currentY += 20;
+          }
+          if (section.items) {
+            section.items.forEach((item: any) => {
+              const mainText = item.position || item.school || '';
+              const subText = item.company || item.degree || '';
+              const period = item.period || item.year || '';
+
+              if (mainText) {
+                exportLines.push({ text: mainText, x: el.x, y: currentY, fontSize: 11, fontWeight: 'bold' });
+                currentY += 15;
+              }
+              if (subText || period) {
+                exportLines.push({ text: `${subText}${subText && period ? ' | ' : ''}${period}`, x: el.x, y: currentY, fontSize: 9 });
+                currentY += 12;
+              }
+              if (item.description) {
+                const descLines = item.description.split('\n');
+                descLines.forEach((d: string) => {
+                  exportLines.push({ text: d, x: el.x + 10, y: currentY, fontSize: 9 });
+                  currentY += 12;
+                });
+              }
+              currentY += 5;
+            });
+          } else if (section.content) {
+            const contentLines = section.content.split('\n');
+            contentLines.forEach((l: string) => {
+              exportLines.push({ text: l, x: el.x, y: currentY, fontSize: 10 });
+              currentY += 12;
+            });
+          }
+        }
+      }
+    });
+    return { exportLines, exportShapes, exportImages };
+  }, []);
+
+  // Check for payment success on load — use current editor state, not fragile localStorage
   useEffect(() => {
     const query = new URLSearchParams(window.location.search);
     if (query.get('payment_success')) {
-      // Restore state and trigger export
-      const savedState = localStorage.getItem('pendingExportState');
-      if (savedState) {
-        const parsedState = JSON.parse(savedState);
-        // We need to set state first, then wait for it to apply before exporting
-        // Alternatively, we can pass the parsed pages directly to export function
-        // For simplicity, let's just trigger the export with the saved data
+      // Clean up URL immediately
+      window.history.replaceState({}, document.title, window.location.pathname);
 
-        // Helper to convert editor elements to exporter format
-        const mapElementsToExport = (elements: EditorElement[]) => {
-          const exportLines: any[] = [];
-          const exportShapes: any[] = [];
-          const exportImages: any[] = [];
+      // Small delay to let React hydrate the editor state
+      const timer = setTimeout(async () => {
+        try {
+          // Use current editor state (pages from initial state or restored from other means)
+          const pagesToExport = editorState.pages;
+          if (!pagesToExport || pagesToExport.length === 0) {
+            console.warn('No pages to export after payment success');
+            alert('Pagamento confirmado! Mas não há conteúdo para exportar. Crie seu documento e exporte novamente.');
+            return;
+          }
 
-          elements.forEach(el => {
-            if (el.type === 'text') {
-              exportLines.push({
-                text: el.content,
-                x: el.x,
-                y: el.y,
-                fontSize: el.style.fontSize || 12,
-                fontWeight: el.style.fontWeight,
-                color: el.style.color
-              });
-            } else if (el.type === 'shape') {
-              exportShapes.push({
-                x: el.x,
-                y: el.y,
-                width: el.width,
-                height: el.height,
-                backgroundColor: el.style.backgroundColor,
-                opacity: el.style.opacity
-              });
-            } else if (el.type === 'image') {
-              exportImages.push({
-                x: el.x,
-                y: el.y,
-                width: el.width,
-                height: el.height,
-                src: el.content,
-                opacity: el.style.opacity,
-                rotation: el.rotation
-              });
-            } else if (el.type === 'smart-element') {
-              const content = el.content?.toLowerCase() || '';
-              if (content.includes('photo') && el.componentData?.userImage) {
-                exportImages.push({
-                  x: el.x,
-                  y: el.y,
-                  width: el.width,
-                  height: el.height,
-                  src: el.componentData.userImage,
-                  opacity: el.style.opacity
-                });
-              } else if (content.includes('resumesection') && el.componentData?.section) {
-                const section = el.componentData.section;
-                // Basic mapping for resume sections - extract text items
-                // Note: Simplified for MVP as full layout replication is complex
-                let currentY = el.y;
-                if (section.title) {
-                  exportLines.push({ text: section.title, x: el.x, y: currentY, fontSize: 14, fontWeight: 'bold' });
-                  currentY += 20;
-                }
-                if (section.items) {
-                  section.items.forEach((item: any) => {
-                    const mainText = item.position || item.school || '';
-                    const subText = item.company || item.degree || '';
-                    const period = item.period || item.year || '';
+          const { exportToPDF, downloadPDF } = await import('./utils/pdfExporter');
 
-                    if (mainText) {
-                      exportLines.push({ text: mainText, x: el.x, y: currentY, fontSize: 11, fontWeight: 'bold' });
-                      currentY += 15;
-                    }
-                    if (subText || period) {
-                      exportLines.push({ text: `${subText}${subText && period ? ' | ' : ''}${period}`, x: el.x, y: currentY, fontSize: 9 });
-                      currentY += 12;
-                    }
-                    if (item.description) {
-                      const descLines = item.description.split('\n');
-                      descLines.forEach((d: string) => {
-                        exportLines.push({ text: d, x: el.x + 10, y: currentY, fontSize: 9 });
-                        currentY += 12;
-                      });
-                    }
-                    currentY += 5;
-                  });
-                } else if (section.content) {
-                  const contentLines = section.content.split('\n');
-                  contentLines.forEach((l: string) => {
-                    exportLines.push({ text: l, x: el.x, y: currentY, fontSize: 10 });
-                    currentY += 12;
-                  });
-                }
-              }
-            }
-          });
-          return { exportLines, exportShapes, exportImages };
-        };
-
-        // Trigger export with saved data immediately
-        import('./utils/pdfExporter').then(async ({ exportToPDF, downloadPDF }) => {
-          const exportPages = parsedState.pages.map((page: PDFPage) => {
+          const exportPages = pagesToExport.map((page: PDFPage) => {
             const { exportLines, exportShapes, exportImages } = mapElementsToExport(page.elements);
             return {
               lines: exportLines,
@@ -777,41 +810,38 @@ const App: React.FC = () => {
           const pdfBytes = await exportToPDF(exportPages);
           downloadPDF(pdfBytes, 'curriculo-inteligente.pdf');
 
-          // NEW: Send by Email too
-          const pdfBase64 = btoa(
-            new Uint8Array(pdfBytes)
-              .reduce((data, byte) => data + String.fromCharCode(byte), '')
-          );
-
-          const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-
-          // Find email in restored content
-          const allRestoredText = parsedState.pages.flatMap((p: any) => p.elements)
-            .filter((el: any) => el.type === 'text')
-            .map((el: any) => el.content)
+          // Try to send by email too
+          const allText = pagesToExport.flatMap((p: PDFPage) => p.elements)
+            .filter((el: EditorElement) => el.type === 'text')
+            .map((el: EditorElement) => el.content)
             .join(' ');
-          const emailMatch = allRestoredText.match(/[a-zA-Z0-9._%+-]+@([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}/);
+          const emailMatch = allText.match(/[a-zA-Z0-9._%+-]+@([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}/);
           const userEmail = emailMatch ? emailMatch[0] : null;
 
           if (userEmail) {
+            const pdfBase64 = btoa(
+              new Uint8Array(pdfBytes)
+                .reduce((data, byte) => data + String.fromCharCode(byte), '')
+            );
+            const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:5000';
             fetch(`${apiBase}/send-pdf-email`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ email: userEmail, pdfBase64 })
-            }).then(r => r.json()).then(data => {
-              if (data.message && data.message.includes('Simulação')) {
-                console.log('Email enviado via simulação (SMTP não configurado)');
-              } else if (data.success) {
-                console.log('Email enviado com sucesso!');
-              }
             }).catch(err => console.error('Erro ao enviar email:', err));
           }
 
-          // Cleanup state
-          window.history.replaceState({}, document.title, window.location.pathname);
+          // Cleanup
           localStorage.removeItem('pendingExportState');
-        });
-      }
+          setIsProcessingPayment(false);
+        } catch (err) {
+          console.error('Export after payment failed:', err);
+          alert('Pagamento confirmado, mas houve um erro ao exportar. Tente exportar manualmente.');
+          setIsProcessingPayment(false);
+        }
+      }, 500);
+
+      return () => clearTimeout(timer);
     }
   }, []);
 
@@ -929,24 +959,117 @@ const App: React.FC = () => {
           newElement.content = data.fullName || element.content;
         }
         // Role/Title fields
-        else if (id.includes('role') || id.includes('title')) {
-          newElement.content = element.content; // Keep template role for now
+        else if (id === 'role' || id === 'tagline') {
+          // Keep template default unless user specifies
+          newElement.content = element.content;
         }
-        // Contact fields
-        else if (id.includes('contact') && !id.includes('header')) {
+        // Contact fields (combined contact string)
+        else if ((id.includes('contact') || id === 'info' || id === 'contact-info') && !id.includes('header') && !id.includes('-h')) {
           const contactParts = [];
-          if (data.email) contactParts.push(`📧 ${data.email}`);
-          if (data.phone) contactParts.push(`📱 ${data.phone}`);
           if (data.location) contactParts.push(`📍 ${data.location}`);
+          if (data.phone) contactParts.push(`📞 ${data.phone}`);
+          if (data.email) contactParts.push(`✉️ ${data.email}`);
           if (data.website) contactParts.push(`🔗 ${data.website}`);
           if (contactParts.length > 0) {
-            newElement.content = contactParts.join('  |  ');
+            // If original uses " | " separator (single line), keep that format
+            if (element.content.includes('  |  ') || element.content.includes('  •  ')) {
+              newElement.content = contactParts.join('  |  ');
+            } else {
+              newElement.content = contactParts.join('\n');
+            }
           }
         }
         // Summary fields
-        else if (id.includes('summary') && !id.includes('header') && !id.includes('-h')) {
+        else if (id.includes('summary') && !id.includes('header') && !id.includes('-h') && !id.includes('title')) {
           if (data.summary) {
             newElement.content = data.summary;
+          }
+        }
+        // About Me fields
+        else if (id === 'about' || id === 'profile') {
+          if (data.summary) {
+            newElement.content = data.summary;
+          }
+        }
+
+        // --- Experience: populate job1, job2 text elements ---
+        else if (id === 'job1-role' && data.experience.length > 0) {
+          newElement.content = data.experience[0].title || element.content;
+        }
+        else if ((id === 'job1-comp' || id === 'job1-company') && data.experience.length > 0) {
+          const exp = data.experience[0];
+          newElement.content = exp.period ? `${exp.company} | ${exp.period}` : exp.company;
+        }
+        else if ((id === 'job1-date' || id === 'job1-period') && data.experience.length > 0 && data.experience[0].period) {
+          newElement.content = data.experience[0].period;
+        }
+        else if ((id === 'job1-desc' || id === 'job1-achievements') && data.experience.length > 0 && data.experience[0].description) {
+          newElement.content = data.experience[0].description;
+        }
+        else if (id === 'job2-role' && data.experience.length > 1) {
+          newElement.content = data.experience[1].title || element.content;
+        }
+        else if ((id === 'job2-comp' || id === 'job2-company') && data.experience.length > 1) {
+          const exp = data.experience[1];
+          newElement.content = exp.period ? `${exp.company} | ${exp.period}` : exp.company;
+        }
+        else if ((id === 'job2-date' || id === 'job2-period') && data.experience.length > 1 && data.experience[1].period) {
+          newElement.content = data.experience[1].period;
+        }
+        else if ((id === 'job2-desc' || id === 'job2-achievements') && data.experience.length > 1 && data.experience[1].description) {
+          newElement.content = data.experience[1].description;
+        }
+
+        // --- Education: populate edu1, edu2 text elements ---
+        else if ((id === 'edu1-title' || id === 'edu1-degree') && data.education.length > 0) {
+          newElement.content = data.education[0].degree || element.content;
+        }
+        else if (id === 'edu1-school' && data.education.length > 0) {
+          const edu = data.education[0];
+          newElement.content = edu.year ? `${edu.school} | ${edu.year}` : edu.school;
+        }
+        else if (id === 'edu1-year' && data.education.length > 0 && data.education[0].year) {
+          newElement.content = data.education[0].year;
+        }
+        else if ((id === 'edu2-title' || id === 'edu2-degree') && data.education.length > 1) {
+          newElement.content = data.education[1].degree || element.content;
+        }
+        else if (id === 'edu2-school' && data.education.length > 1) {
+          const edu = data.education[1];
+          newElement.content = edu.year ? `${edu.school} | ${edu.year}` : edu.school;
+        }
+        else if (id === 'edu2-year' && data.education.length > 1 && data.education[1].year) {
+          newElement.content = data.education[1].year;
+        }
+        // Single education field (e.g. "edu" or "education")
+        else if ((id === 'edu' || id === 'edu1' || id === 'education') && !id.includes('-h') && data.education.length > 0) {
+          const parts = data.education.map((edu: any) => {
+            return edu.year ? `• ${edu.degree} - ${edu.school} | ${edu.year}` : `• ${edu.degree} - ${edu.school}`;
+          });
+          newElement.content = parts.join('\n');
+        }
+
+        // Skills list population
+        else if (id.includes('skill') && !id.includes('header') && !id.includes('-h')) {
+          if (data.skills && data.skills.length > 0) {
+            newElement.content = data.skills.map((s: string) => `• ${s}`).join('\n');
+          }
+        }
+
+        // --- Skills: populate skill-list, skill-col, comp-col elements ---
+        else if ((id.includes('skill-list') || id.includes('skill-col') || id.includes('comp-col')) && data.skills.length > 0) {
+          // Distribute skills across columns if multiple columns exist
+          const colMatch = id.match(/col(\d)/);
+          if (colMatch) {
+            const colIndex = parseInt(colMatch[1]) - 1;
+            const chunkSize = Math.ceil(data.skills.length / 3);
+            const start = colIndex * chunkSize;
+            const chunk = data.skills.slice(start, start + chunkSize);
+            if (chunk.length > 0) {
+              newElement.content = chunk.map((s: string) => `• ${s}`).join('\n');
+            }
+          } else {
+            newElement.content = data.skills.map((s: string) => `• ${s}`).join('\n');
           }
         }
       }
@@ -1009,7 +1132,7 @@ const App: React.FC = () => {
                 ...element.componentData,
                 section: {
                   ...section,
-                  content: data.skills.join('\n• ')
+                  content: data.skills.map((s: string) => `• ${s}`).join('\n')
                 }
               };
             }
@@ -1310,10 +1433,26 @@ const App: React.FC = () => {
 
               <button
                 onClick={handleCheckoutAndExport}
-                className="flex items-center gap-2 rounded-full bg-gradient-to-r from-blue-600 to-indigo-700 px-6 py-2 text-sm font-bold text-white shadow-md hover:from-blue-700 hover:to-indigo-800 hover:shadow-lg transition-all transform hover:-translate-y-0.5"
+                disabled={isProcessingPayment}
+                className={`flex items-center gap-2 rounded-full px-6 py-2 text-sm font-bold text-white shadow-md transition-all transform ${isProcessingPayment
+                  ? 'bg-gray-400 cursor-not-allowed'
+                  : 'bg-gradient-to-r from-blue-600 to-indigo-700 hover:from-blue-700 hover:to-indigo-800 hover:shadow-lg hover:-translate-y-0.5'
+                  }`}
               >
-                <Download size={18} />
-                {translations[language].exportPdf}
+                {isProcessingPayment ? (
+                  <>
+                    <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                    </svg>
+                    A processar...
+                  </>
+                ) : (
+                  <>
+                    <Download size={18} />
+                    {translations[language].exportPdf}
+                  </>
+                )}
               </button>
             </div>
 
@@ -1350,14 +1489,8 @@ const App: React.FC = () => {
                     penMode={editorState.penMode}
                     onUpdateDrawing={handleUpdateDrawing}
                     onErase={(x, y, w, h) => handleErase(page.id, x, y, w, h)}
-                    onTriggerElementImageUpload={(id) => {
-                      const el = page.elements.find(e => e.id === id);
-                      if (el) handleUpdateElement(page.id, id, { content: 'https://picsum.photos/400/300' }); // Placeholder or trigger actual upload if exists
-                    }}
-                    onTriggerCamera={(id) => {
-                      const el = page.elements.find(e => e.id === id);
-                      if (el) handleUpdateElement(page.id, id, { content: 'https://picsum.photos/400/300' }); // Placeholder
-                    }}
+                    onTriggerElementImageUpload={(id) => handleImageUploadTrigger(id)}
+                    onTriggerCamera={(id) => startCamera(id)}
                     penSize={penSize}
                   />
                   <div className="flex flex-col items-center gap-2 mt-4">

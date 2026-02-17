@@ -234,65 +234,63 @@ def create_checkout_session():
             print("Error: STRIPE_SECRET_KEY is not set in environment variables.")
             return jsonify(error="Configuração do Stripe ausente no servidor."), 500
 
-        email = data.get('email')
-        print(f"Creating checkout session with key: {stripe.api_key[:10]}... (Email: {email})")
-        
+        email = data.get('email') or None  # Ensure empty string becomes None
         origin = data.get('origin', os.getenv('FRONTEND_URL', 'http://localhost:5173'))
+        
+        # Validate origin
+        if not origin or not origin.startswith(('http://', 'https://')):
+            return jsonify(error="Origem inválida."), 400
+
+        print(f"Creating checkout session (Email: {email}, Origin: {origin})")
+        
+        # Build common session parameters
+        session_params = {
+            'line_items': [
+                {
+                    'price_data': {
+                        'currency': 'brl',
+                        'product_data': {
+                            'name': 'Exportação PDF Premium',
+                        },
+                        'unit_amount': 1000,  # R$ 10,00
+                    },
+                    'quantity': 1,
+                },
+            ],
+            'mode': 'payment',
+            'locale': 'pt-BR',
+            'success_url': f"{origin}/?payment_success=true",
+            'cancel_url': f"{origin}/?payment_canceled=true",
+        }
+        
+        # Only include customer_email if we have a valid email
+        if email:
+            session_params['customer_email'] = email
         
         try:
             # Try automatic payment methods first (Preferred)
             checkout_session = stripe.checkout.Session.create(
                 automatic_payment_methods={'enabled': True},
-                customer_email=email,
-                line_items=[
-                    {
-                        'price_data': {
-                            'currency': 'brl',
-                            'product_data': {
-                                'name': 'Exportação PDF Premium',
-                            },
-                            'unit_amount': 1000, # R$ 10,00
-                        },
-                        'quantity': 1,
-                    },
-                ],
-                mode='payment',
-                locale='pt-BR',
-                success_url=f"{origin}/?payment_success=true",
-                cancel_url=f"{origin}/?payment_canceled=true",
+                **session_params
             )
         except stripe.error.InvalidRequestError as e:
             error_msg = str(e)
-            print(f"Automatic methods failed: {error_msg}. Falling back to manual configuration.")
+            print(f"Automatic methods failed: {error_msg}. Falling back to card only.")
             
             # Fallback for older API versions or restricted accounts
-            # Note: PIX might fail if not enabled in dashboard, so we default to card for safety
             checkout_session = stripe.checkout.Session.create(
-                customer_email=email,
                 payment_method_types=['card'],
-                line_items=[
-                    {
-                        'price_data': {
-                            'currency': 'brl',
-                            'product_data': {
-                                'name': 'Exportação PDF Premium',
-                            },
-                            'unit_amount': 1000, # R$ 10,00
-                        },
-                        'quantity': 1,
-                    },
-                ],
-                mode='payment',
-                locale='pt-BR',
-                success_url=f"{origin}/?payment_success=true",
-                cancel_url=f"{origin}/?payment_canceled=true",
+                **session_params
             )
 
         print(f"Session created: {checkout_session.id}")
         return jsonify({'id': checkout_session.id, 'url': checkout_session.url})
+    except stripe.error.StripeError as e:
+        print(f"Stripe error: {str(e)}")
+        return jsonify(error=f"Erro do Stripe: {str(e)}"), 500
     except Exception as e:
         print(f"Error creating checkout session: {str(e)}")
-        return jsonify(error=str(e)), 403
+        return jsonify(error=str(e)), 500
 
 @app.route('/send-pdf-email', methods=['POST'])
 def send_pdf_email():
