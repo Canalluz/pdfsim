@@ -54,6 +54,7 @@ import ShapeSelector from './components/ShapeSelector';
 import TableSelector from './components/TableSelector';
 import SignatureModal from './components/SignatureModal';
 import { Language, translations } from './utils/i18n';
+import { saveToIndexedDB, getFromIndexedDB } from './utils/storage';
 
 const App: React.FC = () => {
   const [editorState, setEditorState] = useState<EditorState>(() => {
@@ -100,10 +101,16 @@ const App: React.FC = () => {
   const [showCamera, setShowCamera] = useState(false);
   const activeCameraElementId = useRef<string | null>(null);
 
-  // Auto-save editor state to localStorage
+  // Auto-save editor state to localStorage (with error handling for quota)
   useEffect(() => {
     const saveState = setTimeout(() => {
-      localStorage.setItem('pdfsim_editor_state', JSON.stringify(editorState));
+      try {
+        localStorage.setItem('pdfsim_editor_state', JSON.stringify(editorState));
+      } catch (e: any) {
+        if (e.name === 'QuotaExceededError' || e.name === 'NS_ERROR_DOM_QUOTA_REACHED') {
+          console.warn('LocalStorage quota exceeded, relying on IndexedDB for checkout backups.');
+        }
+      }
     }, 1000); // 1s debounce
     return () => clearTimeout(saveState);
   }, [editorState]);
@@ -129,6 +136,7 @@ const App: React.FC = () => {
           // causing the fresh 'pdfsim_export_backup' to be ignored.
           const sessionBackup = sessionStorage.getItem('pdfsim_export_backup');
           const localBackup = localStorage.getItem('pdfsim_export_backup');
+          const indexedBackup = await getFromIndexedDB<EditorState>('pdfsim_export_backup');
 
           const attemptParse = (raw: string | null) => {
             if (!raw) return null;
@@ -139,7 +147,7 @@ const App: React.FC = () => {
             return null;
           };
 
-          const exportState = attemptParse(sessionBackup) || attemptParse(localBackup);
+          const exportState = indexedBackup || attemptParse(sessionBackup) || attemptParse(localBackup);
 
           if (exportState) {
             console.log("Restoring explicit export backup for printing...");
@@ -674,8 +682,18 @@ const App: React.FC = () => {
   const handleCheckoutAndExport = async () => {
     setIsProcessingPayment(true);
     try {
-      sessionStorage.setItem('pdfsim_export_backup', JSON.stringify(editorState));
-      localStorage.setItem('pdfsim_export_backup', JSON.stringify(editorState));
+      const stateStr = JSON.stringify(editorState);
+
+      // Attempt multiple storage fallback
+      try {
+        sessionStorage.setItem('pdfsim_export_backup', stateStr);
+        localStorage.setItem('pdfsim_export_backup', stateStr);
+      } catch (storageErr) {
+        console.warn('Storage quota exceeded for localStorage, using IndexedDB exclusively.');
+      }
+
+      // Always save to IndexedDB as it's the most robust for large data
+      await saveToIndexedDB('pdfsim_export_backup', editorState);
 
       let apiUrl = import.meta.env.VITE_API_URL || 'http://127.0.0.1:5000';
       // Remove trailing slash if present to avoid double slashes
