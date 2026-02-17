@@ -1028,23 +1028,23 @@ const App: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-4 bg-slate-900/50 px-4 py-2 rounded-2xl border border-slate-800/50 shadow-inner ml-4">
-            <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest leading-none mt-0.5">{translations[language].languageName}:</span>
+            <span className="text-[10px] font-black text-white uppercase tracking-widest leading-none mt-0.5">{translations[language].languageName}:</span>
             <div className="flex items-center gap-2">
               <button
                 onClick={() => setLanguage('pt')}
-                className={`transition-all duration-300 hover:scale-110 active:scale-95 ${language === 'pt' ? 'ring-2 ring-indigo-500 ring-offset-2 ring-offset-slate-950 scale-105' : 'grayscale opacity-30 hover:opacity-100'}`}
+                className={`transition-all duration-300 hover:scale-110 active:scale-95 ${language === 'pt' ? 'ring-2 ring-indigo-500 ring-offset-2 ring-offset-slate-950 scale-105' : 'grayscale opacity-60 hover:opacity-100'}`}
               >
                 <img src="https://flagcdn.com/w80/br.png" alt="BR" className="w-8 h-5 object-cover rounded shadow-md" />
               </button>
               <button
                 onClick={() => setLanguage('es')}
-                className={`transition-all duration-300 hover:scale-110 active:scale-95 ${language === 'es' ? 'ring-2 ring-indigo-500 ring-offset-2 ring-offset-slate-950 scale-105' : 'grayscale opacity-30 hover:opacity-100'}`}
+                className={`transition-all duration-300 hover:scale-110 active:scale-95 ${language === 'es' ? 'ring-2 ring-indigo-500 ring-offset-2 ring-offset-slate-950 scale-105' : 'grayscale opacity-60 hover:opacity-100'}`}
               >
                 <img src="https://flagcdn.com/w80/es.png" alt="ES" className="w-8 h-5 object-cover rounded shadow-md" />
               </button>
               <button
                 onClick={() => setLanguage('en')}
-                className={`transition-all duration-300 hover:scale-110 active:scale-95 ${language === 'en' ? 'ring-2 ring-indigo-500 ring-offset-2 ring-offset-slate-950 scale-105' : 'grayscale opacity-30 hover:opacity-100'}`}
+                className={`transition-all duration-300 hover:scale-110 active:scale-95 ${language === 'en' ? 'ring-2 ring-indigo-500 ring-offset-2 ring-offset-slate-950 scale-105' : 'grayscale opacity-60 hover:opacity-100'}`}
               >
                 <img src="https://flagcdn.com/w80/gb.png" alt="EN" className="w-8 h-5 object-cover rounded shadow-md" />
               </button>
