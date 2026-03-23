@@ -47,10 +47,28 @@ export interface EditorElement {
     blur?: number;       // 0px default
     grayscale?: number;  // 0% default
     sepia?: number;      // 0% default
+    background?: string; // For gradients
     boxShadow?: string;
     lineHeight?: number;
-    background?: string; // For gradients
   };
+}
+
+export interface PDFBlock {
+  text: string;
+  bbox: [number, number, number, number];
+  font: string;
+  font_id: number | null;
+  size: number;
+  color: number;
+  origin: [number, number];
+  is_subset: boolean;
+  flags: number;
+}
+
+export interface PDFFont {
+  object_id: number;
+  is_subset: boolean;
+  type: string;
 }
 
 export interface PDFPage {
@@ -59,6 +77,9 @@ export interface PDFPage {
   backgroundImage?: string; // Base64 image of PDF page (for hybrid mode)
   drawingData?: string; // Base64 image of the drawing layer
   elements: EditorElement[];
+  blocks?: PDFBlock[]; // Original text blocks from PDF
+  width?: number;
+  height?: number;
 }
 
 export interface EditorState {
@@ -69,4 +90,5 @@ export interface EditorState {
   sessionId?: string; // Backend session ID for Word conversion
   eraserMode?: boolean; // Eraser tool active
   penMode?: boolean; // Pen tool active
+  fonts?: Record<string, PDFFont>; // Original fonts metadata
 }

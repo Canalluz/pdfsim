@@ -1,6 +1,7 @@
 
 import React, { useRef, useState, useEffect } from 'react';
-import { PDFPage, EditorElement } from '../types';
+import { PDFPage, EditorElement, PDFFont } from '../types';
+import TextEditorOverlay from './TextEditorOverlay';
 import CropOverlay from './CropOverlay';
 import { ProfessionalPhoto, ResumeSection } from './SmartResumeComponents';
 import { Language, translations } from '../utils/i18n';
@@ -26,6 +27,8 @@ interface EditorCanvasProps {
   penSize?: number;
   isExporting?: boolean;
   onFinishAction?: () => void;
+  fonts?: Record<string, PDFFont>;
+  onUpdateBlock?: (index: number, newText: string) => void;
 }
 
 const EditorCanvas: React.FC<EditorCanvasProps> = ({
@@ -48,6 +51,8 @@ const EditorCanvas: React.FC<EditorCanvasProps> = ({
   penSize = 2,
   isExporting = false,
   onFinishAction,
+  fonts,
+  onUpdateBlock,
 }) => {
   const t = translations[language] || translations['pt'];
 
@@ -332,9 +337,9 @@ const EditorCanvas: React.FC<EditorCanvasProps> = ({
     setResizing(null);
   };
 
-  // Base dimensions for A4 at 72dpi
-  const BASE_WIDTH = 595;
-  const BASE_HEIGHT = 842;
+  // Base dimensions from page metadata or standard A4 fallback
+  const BASE_WIDTH = page.width || 595;
+  const BASE_HEIGHT = page.height || 842;
 
   return (
     <div
@@ -399,6 +404,17 @@ const EditorCanvas: React.FC<EditorCanvasProps> = ({
               cursor: eraserMode ? 'cell' : 'crosshair',
             }}
           />
+
+          {/* Original PDF Text Overlay (True Editing) */}
+          {page.blocks && page.blocks.length > 0 && (
+            <TextEditorOverlay
+              blocks={page.blocks}
+              fonts={fonts}
+              scale={1} // The scale is handled by the parent's transform: scale(scale)
+              onUpdateBlock={onUpdateBlock || (() => {})}
+              visible={!eraserMode && !isExporting}
+            />
+          )}
 
           {/* Editable Overlay Elements */}
           {page.elements.map((el) => (

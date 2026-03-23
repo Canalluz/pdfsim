@@ -46,13 +46,14 @@ export const pingBackend = async (): Promise<void> => {
 
 export interface BackendTextBlock {
     text: string;
-    x: number;
-    y: number;
-    width: number;
-    height: number;
+    bbox: [number, number, number, number];
     font: string;
+    font_id: number | null;
     size: number;
     color: number;
+    origin: [number, number];
+    is_subset: boolean;
+    flags: number;
 }
 
 export interface BackendPageData {
@@ -65,6 +66,11 @@ export interface BackendPageData {
 export interface UploadResponse {
     sessionId: string;
     pages: BackendPageData[];
+    fonts?: Record<string, {
+        object_id: number;
+        is_subset: boolean;
+        type: string;
+    }>;
 }
 
 export const uploadPDFToBackend = async (file: File): Promise<UploadResponse> => {
@@ -138,6 +144,84 @@ export const renderPdfPage = async (sessionId: string, pageNumber: number, dpi: 
 
     if (!response.ok) {
         throw new Error('Falha ao renderizar página');
+    }
+
+    return response.json();
+};
+
+/**
+ * Convert a website URL to PDF via backend
+ */
+export const convertUrlToPdf = async (url: string): Promise<UploadResponse> => {
+    const response = await fetch(`${API_BASE_URL}/convert/url-to-pdf`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ url }),
+    });
+
+    if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Erro ao converter URL para PDF');
+    }
+
+    return response.json();
+};
+
+/**
+ * Convert an uploaded HTML file to PDF via backend
+ */
+export const convertHtmlToPdf = async (file: File): Promise<UploadResponse> => {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const response = await fetch(`${API_BASE_URL}/convert/html-to-pdf`, {
+        method: 'POST',
+        body: formData,
+    });
+
+    if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Erro ao converter HTML para PDF');
+    }
+
+    return response.json();
+};
+
+/**
+ * Precisely edit text at a given rectangle in the PDF
+ */
+export const editTextAtRect = async (
+    sessionId: string, 
+    pageNumber: number, 
+    rect: [number, number, number, number], 
+    newText: string,
+    fontName?: string,
+    fontSize?: number,
+    color?: number,
+    origin?: [number, number]
+): Promise<{ success: boolean }> => {
+    const response = await fetch(`${API_BASE_URL}/edit/rect`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ 
+            sessionId, 
+            pageNumber, 
+            rect, 
+            newText,
+            fontName,
+            fontSize,
+            color,
+            origin
+        }),
+    });
+
+    if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Erro ao editar texto no PDF');
     }
 
     return response.json();

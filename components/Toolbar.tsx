@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { MousePointer2, Type, ImageIcon, Square, Link as LinkIcon, Table, Layout, FileText, Camera, Eraser, PenTool, Plus } from 'lucide-react';
+import { MousePointer2, Type, ImageIcon, Square, Link as LinkIcon, Table, Layout, FileText, Camera, Eraser, PenTool, Plus, FileCode } from 'lucide-react';
 import { ElementType } from '../types';
 import { Language, translations } from '../utils/i18n';
 
@@ -20,6 +20,8 @@ interface ToolbarProps {
   templatesActive?: boolean;
   onAddSignature?: () => void;
   onAddPage?: () => void;
+  onUrlToPdf?: () => void;
+  onHtmlToPdf?: () => void;
   penSize?: number;
   onUpdatePenSize?: (size: number) => void;
 }
@@ -40,6 +42,8 @@ const Toolbar: React.FC<ToolbarProps> = ({
   templatesActive = false,
   onAddSignature,
   onAddPage,
+  onUrlToPdf,
+  onHtmlToPdf,
   penSize = 2,
   onUpdatePenSize
 }) => {
@@ -57,6 +61,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
       title: language === 'pt' ? 'Conteúdo' : 'Content',
       items: [
         { id: 'text', icon: <Type size={18} />, label: t.addText, action: () => onAddElement('text') },
+        { id: 'pen', icon: <Eraser size={18} />, label: t.eraser, action: () => onTogglePen && onTogglePen(), highlight: penActive, description: t.eraserDesc },
         { id: 'image', icon: <ImageIcon size={18} />, label: t.insertImage, action: () => onAddImage ? onAddImage() : onAddElement('image') },
         { id: 'pdf', icon: <FileText size={18} />, label: t.insertPdf, action: () => onAddPdf ? onAddPdf() : {} },
         { id: 'camera', icon: <Camera size={18} />, label: t.cameraPhotoTool, action: () => onAddCamera ? onAddCamera() : {} },
@@ -68,13 +73,8 @@ const Toolbar: React.FC<ToolbarProps> = ({
         { id: 'shape', icon: <Square size={18} />, label: t.shapes, action: () => onToggleShapes && onToggleShapes(), highlight: shapesActive },
         { id: 'table', icon: <Table size={18} />, label: t.table, action: () => onToggleTable && onToggleTable(), highlight: tableActive },
         { id: 'signature', icon: <PenTool size={18} />, label: t.signature, action: () => onAddSignature && onAddSignature() },
-        { id: 'link', icon: <LinkIcon size={18} />, label: t.link, action: () => onAddElement('link') },
-      ]
-    },
-    {
-      title: language === 'pt' ? 'Ferramentas' : 'Tools',
-      items: [
-        { id: 'pen', icon: <Eraser size={18} />, label: t.eraser, action: () => onTogglePen && onTogglePen(), highlight: penActive, description: t.eraserDesc },
+        { id: 'urlToPdf', icon: <LinkIcon size={18} />, label: t.urlToPdf, action: () => onUrlToPdf && onUrlToPdf() },
+        { id: 'htmlToPdf', icon: <FileCode size={18} />, label: t.htmlToPdf, action: () => onHtmlToPdf && onHtmlToPdf() },
       ]
     }
   ];

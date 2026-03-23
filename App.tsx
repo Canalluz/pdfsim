@@ -23,7 +23,9 @@ import {
   Camera,
   X,
   FileEdit,
-  Upload
+  Upload,
+  CheckCircle2,
+  AlertCircle
 } from 'lucide-react';
 
 import { EditorElement, PDFPage, EditorState, ElementType } from './types';
@@ -55,7 +57,10 @@ import TableSelector from './components/TableSelector';
 import SignatureModal from './components/SignatureModal';
 import { Language, translations } from './utils/i18n';
 import { saveToIndexedDB, getFromIndexedDB } from './utils/storage';
-import { pingBackend, fetchWithRetry } from './utils/api';
+import { pingBackend, fetchWithRetry, convertUrlToPdf, convertHtmlToPdf, BackendPageData, renderPdfPage, uploadPDFToBackend, editTextAtRect } from './utils/api';
+import UrlToPdfModal from './components/UrlToPdfModal';
+import HtmlToPdfModal from './components/HtmlToPdfModal';
+import { t as i18n } from './utils/i18n';
 
 const App: React.FC = () => {
   const [editorState, setEditorState] = useState<EditorState>(() => {
@@ -82,12 +87,20 @@ const App: React.FC = () => {
   const [isShapeSelectorOpen, setIsShapeSelectorOpen] = useState(false);
   const [isTableSelectorOpen, setIsTableSelectorOpen] = useState(false);
   const [isSignatureModalOpen, setIsSignatureModalOpen] = useState(false);
+  const [isUrlToPdfModalOpen, setIsUrlToPdfModalOpen] = useState(false);
+  const [isHtmlToPdfModalOpen, setIsHtmlToPdfModalOpen] = useState(false);
   const [penSize, setPenSize] = useState(2);
   const [isExportMode, setIsExportMode] = useState(false);
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
   const [exportStatus, setExportStatus] = useState<string | null>(null);
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
   const [showSuccessOverlay, setShowSuccessOverlay] = useState(false);
+  const [toast, setToast] = useState<{ message: string, type: 'success' | 'error' } | null>(null);
+
+  const showToast = (message: string, type: 'success' | 'error' = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 4000);
+  };
 
   // Word Conversion States
   const [isConverting, setIsConverting] = useState(false);
@@ -831,12 +844,255 @@ const App: React.FC = () => {
     }
   };
 
+  const handleConvertUrlToPdf = async (url: string) => {
+    try {
+      setExportStatus(language === 'pt' ? 'Capturando site...' : 'Capturing website...');
+      const result = await convertUrlToPdf(url);
+      
+      if (result.sessionId && result.pages.length > 0) {
+        setExportStatus(language === 'pt' ? 'Renderizando páginas...' : 'Rendering pages...');
+        
+        const finalPages: PDFPage[] = await Promise.all(result.pages.map(async (p, idx) => {
+          const render = await renderPdfPage(result.sessionId, p.page);
+          return {
+            id: `page-url-${idx}-${Date.now()}`,
+            pageNumber: idx + 1,
+            blocks: p.blocks,
+            width: p.width || 595,
+            height: p.height || 842,
+            elements: [
+              {
+                id: `bg-url-${idx}-${Date.now()}`,
+                type: 'image',
+                x: 0,
+                y: 0,
+                width: p.width || 595,
+                height: p.height || 842,
+                content: render.image,
+                style: { opacity: 1 },
+                isBackground: true,
+                locked: true
+              }
+            ],
+            drawingData: ''
+          };
+        }));
+
+        setEditorState(prev => ({
+          ...prev,
+          sessionId: result.sessionId,
+          fonts: result.fonts, // Store font metadata dictionary
+          pages: finalPages,
+          currentPageId: finalPages[0].id,
+          selectedElementId: null
+        }));
+
+
+        setExportStatus(null);
+        showToast(language === 'pt' ? 'Site capturado com sucesso!' : 'Website captured successfully!', 'success');
+      }
+    } catch (err: any) {
+      setExportStatus(null);
+      throw err;
+    }
+  };
+
+  const handleConvertHtmlToPdf = async (file: File) => {
+    try {
+      setExportStatus(language === 'pt' ? 'Convertendo HTML...' : 'Converting HTML...');
+      const result = await convertHtmlToPdf(file);
+      
+      if (result.sessionId && result.pages.length > 0) {
+        setExportStatus(language === 'pt' ? 'Renderizando páginas...' : 'Rendering pages...');
+        
+        const finalPages: PDFPage[] = await Promise.all(result.pages.map(async (p, idx) => {
+          const render = await renderPdfPage(result.sessionId, p.page);
+          return {
+            id: `page-html-${idx}-${Date.now()}`,
+            pageNumber: idx + 1,
+            blocks: p.blocks,
+            width: p.width || 595,
+            height: p.height || 842,
+            elements: [
+              {
+                id: `bg-html-${idx}-${Date.now()}`,
+                type: 'image',
+                x: 0,
+                y: 0,
+                width: p.width || 595,
+                height: p.height || 842,
+                content: render.image,
+                style: { opacity: 1 },
+                isBackground: true,
+                locked: true
+              }
+            ],
+            drawingData: ''
+          };
+        }));
+
+        setEditorState(prev => ({
+          ...prev,
+          sessionId: result.sessionId,
+          fonts: result.fonts,
+          pages: finalPages,
+          currentPageId: finalPages[0].id,
+          selectedElementId: null
+        }));
+
+
+        setExportStatus(null);
+        showToast(language === 'pt' ? 'HTML convertido com sucesso!' : 'HTML converted successfully!', 'success');
+      }
+    } catch (err: any) {
+      setExportStatus(null);
+      throw err;
+    }
+  };
+
   const handlePdfUploadTrigger = () => pdfInputRef.current?.click();
 
   const handlePdfFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      alert(language === 'pt' ? 'Importação de PDF em breve!' : 'PDF Import coming soon!');
+      try {
+        setExportStatus(language === 'pt' ? 'Lendo PDF...' : 'Reading PDF...');
+        const result = await uploadPDFToBackend(file);
+        
+        if (result.sessionId && result.pages.length > 0) {
+          setExportStatus(language === 'pt' ? 'Processando páginas...' : 'Processing pages...');
+          
+          const finalPages: PDFPage[] = await Promise.all(result.pages.map(async (p, idx) => {
+            const render = await renderPdfPage(result.sessionId, p.page);
+            return {
+              id: `page-pdf-${idx}-${Date.now()}`,
+              pageNumber: idx + 1,
+              blocks: p.blocks,
+              width: p.width || 595,
+              height: p.height || 842,
+              elements: [
+                {
+                  id: `bg-pdf-${idx}-${Date.now()}`,
+                  type: 'image',
+                  x: 0,
+                  y: 0,
+                  width: p.width || 595,
+                  height: p.height || 842,
+                  content: render.image,
+                  style: { opacity: 1 },
+                  isBackground: true,
+                  locked: true
+                }
+              ],
+              drawingData: ''
+            };
+          }));
+
+          setEditorState(prev => ({
+            ...prev,
+            sessionId: result.sessionId,
+            fonts: result.fonts,
+            pages: finalPages,
+            currentPageId: finalPages[0].id,
+            selectedElementId: null
+          }));
+
+          setExportStatus(null);
+          showToast(language === 'pt' ? 'PDF importado com sucesso!' : 'PDF imported successfully!', 'success');
+        }
+      } catch (err: any) {
+        setExportStatus(null);
+        showToast(err.message || 'Erro ao importar PDF', 'error');
+      }
+    }
+  };
+
+  const handleUpdateBlock = async (pageId: string, blockIndex: number, newText: string) => {
+    const page = editorState.pages.find(p => p.id === pageId);
+    if (!page || !page.blocks) return;
+    
+    const block = page.blocks[blockIndex];
+    if (!block || block.text === newText) return;
+
+    // Optimistic UI update
+    const updatedPages = editorState.pages.map(p => {
+        if (p.id === pageId && p.blocks) {
+            const newBlocks = [...p.blocks];
+            newBlocks[blockIndex] = { ...newBlocks[blockIndex], text: newText };
+            return { ...p, blocks: newBlocks };
+        }
+        return p;
+    });
+    setEditorState(prev => ({ ...prev, pages: updatedPages }));
+
+    // Commit to backend
+    if (editorState.sessionId) {
+        try {
+            const result = await editTextAtRect(
+                editorState.sessionId,
+                page.pageNumber,
+                block.bbox,
+                newText,
+                block.font,
+                block.size,
+                block.color,
+                block.origin
+            );
+
+            if (result.success) {
+                // RE-RENDER background image to reflect the change (redaction + new text)
+                // Add a small delay to ensure file system has settled (though tobytes/write is sync)
+                await new Promise(resolve => setTimeout(resolve, 100));
+                const render = await renderPdfPage(editorState.sessionId, page.pageNumber);
+                
+                setEditorState(prev => ({
+                    ...prev,
+                    pages: prev.pages.map(p => {
+                        if (p.id === pageId) {
+                            return {
+                                ...p,
+                                elements: p.elements.map(el => 
+                                    el.isBackground 
+                                        ? { ...el, content: render.image } 
+                                        : el
+                                )
+                            };
+                        }
+                        return p;
+                    })
+                }));
+                showToast('Alteração salva com sucesso', 'success');
+            } else {
+                showToast('Não foi possível salvar a alteração no PDF', 'error');
+                // Revert optimistic update
+                setEditorState(prev => ({
+                    ...prev,
+                    pages: prev.pages.map(p => {
+                        if (p.id === pageId) {
+                            const oldBlocks = [...p.blocks];
+                            oldBlocks[blockIndex] = { ...oldBlocks[blockIndex], text: block.text }; // Revert to original
+                            return { ...p, blocks: oldBlocks };
+                        }
+                        return p;
+                    })
+                }));
+            }
+        } catch (err: any) {
+            console.error('Sync error:', err);
+            showToast(err.message || 'Erro ao sincronizar edição', 'error');
+            // Revert optimistic update
+            setEditorState(prev => ({
+                ...prev,
+                pages: prev.pages.map(p => {
+                    if (p.id === pageId) {
+                        const oldBlocks = [...p.blocks];
+                        oldBlocks[blockIndex] = { ...oldBlocks[blockIndex], text: block.text };
+                        return { ...p, blocks: oldBlocks };
+                    }
+                    return p;
+                })
+            }));
+        }
     }
   };
 
@@ -969,6 +1225,8 @@ const App: React.FC = () => {
                     onUpdateElement={() => { }}
                     scale={1.333} // Standard PT to PX conversion
                     isExporting={true}
+                    fonts={editorState.fonts}
+                    onUpdateBlock={(index, text) => handleUpdateBlock(page.id, index, text)}
                   />
                 </div>
               ))}
@@ -1173,6 +1431,14 @@ const App: React.FC = () => {
             setIsSignatureModalOpen(true);
           }}
           onAddPage={handleAddPage}
+          onUrlToPdf={() => {
+            resetToolModes();
+            setIsUrlToPdfModalOpen(true);
+          }}
+          onHtmlToPdf={() => {
+            resetToolModes();
+            setIsHtmlToPdfModalOpen(true);
+          }}
           penSize={penSize}
           onUpdatePenSize={setPenSize}
           templatesActive={isTemplateSelectorOpen}
@@ -1263,6 +1529,8 @@ const App: React.FC = () => {
                     onTriggerElementImageUpload={handleImageUploadTrigger}
                     onTriggerCamera={startCamera}
                     penSize={penSize}
+                    fonts={editorState.fonts}
+                    onUpdateBlock={(index, text) => handleUpdateBlock(page.id, index, text)}
                     onFinishAction={() => {
                       if (editorState.eraserMode || editorState.penMode) {
                         setEditorState(prev => ({ ...prev, eraserMode: false, penMode: false }));
@@ -1314,6 +1582,34 @@ const App: React.FC = () => {
 
       {isTemplateSelectorOpen && <TemplateSelector language={language} onSelectTemplate={handleApplyTemplate} onClose={() => setIsTemplateSelectorOpen(false)} />}
       {isWizardOpen && <ResumeWizard language={language} onComplete={handleWizardComplete} onClose={() => setIsWizardOpen(false)} />}
+      {isUrlToPdfModalOpen && (
+        <UrlToPdfModal 
+          language={language} 
+          onConvert={handleConvertUrlToPdf} 
+          onClose={() => setIsHtmlToPdfModalOpen(false)} 
+        />
+      )}
+
+      {/* Professional Toast Notification */}
+      {toast && (
+        <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-[200] animate-in slide-in-from-bottom-4 duration-300">
+          <div className={`px-6 py-3 rounded-2xl shadow-2xl backdrop-blur-md border flex items-center gap-3 ${
+            toast.type === 'success' 
+              ? 'bg-green-500/90 border-green-400 text-white' 
+              : 'bg-red-500/90 border-red-400 text-white'
+          }`}>
+            <div className="w-6 h-6 rounded-full bg-white/20 flex items-center justify-center">
+              {toast.type === 'success' ? (
+                <CheckCircle2 size={14} className="text-white" />
+              ) : (
+                <AlertCircle size={14} className="text-white" />
+              )}
+            </div>
+            <span className="text-sm font-bold tracking-tight">{toast.message}</span>
+          </div>
+        </div>
+      )}
+
       {showCamera && (
         <div className="fixed inset-0 z-[80] bg-black bg-opacity-90 flex flex-col items-center justify-center">
           <div className="relative w-full max-w-lg bg-black rounded-lg overflow-hidden border border-gray-800">
@@ -1329,7 +1625,7 @@ const App: React.FC = () => {
       <div id="export-container" style={{ position: 'absolute', top: '-10000px', left: '-10000px', width: '595pt', zIndex: -100 }}>
         {editorState.pages.map((page) => (
           <div key={page.id} style={{ pageBreakAfter: 'always', width: '595pt', height: '842pt' }}>
-            <EditorCanvas language={language} page={page} selectedElementId={null} onSelectElement={() => { }} onUpdateElement={() => { }} scale={1.33} isExporting={true} />
+            <EditorCanvas language={language} page={page} selectedElementId={null} onSelectElement={() => { }} onUpdateElement={() => { }} scale={1.33} isExporting={true} fonts={editorState.fonts} onUpdateBlock={(index, text) => handleUpdateBlock(page.id, index, text)} />
           </div>
         ))}
       </div>

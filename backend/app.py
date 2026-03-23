@@ -46,7 +46,8 @@ def upload_pdf():
     
     return jsonify({
         'sessionId': filename,
-        'pages': extraction_result['pages']
+        'pages': extraction_result['pages'],
+        'fonts': extraction_result.get('fonts', {})
     })
 
 @app.route('/edit/replace', methods=['POST'])
@@ -65,6 +66,39 @@ def replace_text():
         
     editor = AdvancedPDFEditor(filepath)
     success = editor.replace_text(old_text, new_text)
+    editor.close()
+    
+    return jsonify({'success': success})
+
+@app.route('/edit/rect', methods=['POST'])
+def edit_text_rect():
+    data = request.json
+    session_id = data.get('sessionId')
+    page_num = data.get('pageNumber')
+    rect = data.get('rect')
+    new_text = data.get('newText')
+    font_name = data.get('fontName', 'helv')
+    font_size = data.get('fontSize', 11)
+    color = data.get('color', (0, 0, 0))
+    origin = data.get('origin') # Baseline coordinate [x, y]
+    
+    if not session_id or page_num is None or not rect:
+        return jsonify({'error': 'Missing parameters'}), 400
+        
+    filepath = os.path.join(UPLOAD_FOLDER, session_id)
+    if not os.path.exists(filepath):
+        return jsonify({'error': 'Session expired or invalid'}), 404
+        
+    editor = AdvancedPDFEditor(filepath)
+    success = editor.edit_text_at_rect(
+        page_num=page_num,
+        rect=rect,
+        new_text=new_text,
+        font_name=font_name,
+        font_size=font_size,
+        color=color,
+        origin=origin
+    )
     editor.close()
     
     return jsonify({'success': success})
@@ -143,7 +177,8 @@ def convert_word_to_pdf():
     
     return jsonify({
         'sessionId': pdf_filename,
-        'pages': extraction_result['pages']
+        'pages': extraction_result['pages'],
+        'fonts': extraction_result.get('fonts', {})
     })
 
 @app.route('/download/word/<session_id>', methods=['GET'])
@@ -345,7 +380,8 @@ def send_pdf_email():
         # Connect and send
         server = smtplib.SMTP(smtp_server, smtp_port)
         server.starttls()
-        server.login(smtp_user, smtp_password)
+        # Cast to str to satisfy lint, since we check existence above
+        server.login(str(smtp_user), str(smtp_password))
         server.send_message(msg)
         server.quit()
         
@@ -354,6 +390,88 @@ def send_pdf_email():
     except Exception as e:
         print(f"Error sending email: {str(e)}")
         return jsonify({'error': f"Erro ao enviar email: {str(e)}"}), 500
+
+from url_to_pdf import sync_convert_url_to_pdf
+
+@app.route('/convert/url-to-pdf', methods=['POST'])
+def convert_url_to_pdf():
+    """Convert a website URL to PDF and start an editor session"""
+    data = request.json
+    url = data.get('url')
+    
+    if not url:
+        return jsonify({'error': 'URL is required'}), 400
+    
+    if not url.startswith(('http://', 'https://')):
+        url = 'https://' + url
+        
+    filename = str(uuid.uuid4()) + '.pdf'
+    filepath = os.path.join(UPLOAD_FOLDER, filename)
+    
+    success = sync_convert_url_to_pdf(url, filepath)
+    
+    if not success:
+        return jsonify({'error': 'Failed to convert URL to PDF'}), 500
+        
+    # Initialize editor
+    editor = AdvancedPDFEditor(filepath)
+    editors[filename] = editor
+    
+    # Extract initial analysis
+    extraction_result = editor.extract_text()
+    editor.close() 
+    
+    return jsonify({
+        'sessionId': filename,
+        'pages': extraction_result['pages'],
+        'fonts': extraction_result.get('fonts', {})
+    })
+
+@app.route('/convert/html-to-pdf', methods=['POST'])
+def convert_html_to_pdf():
+    """Convert an uploaded HTML file to PDF and start an editor session"""
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file part'}), 400
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({'error': 'No selected file'}), 400
+    
+    # Read HTML content
+    html_content = file.read().decode('utf-8', errors='ignore')
+    
+    filename = str(uuid.uuid4()) + '.pdf'
+    filepath = os.path.join(UPLOAD_FOLDER, filename)
+    
+    # We need to adapt URLToPDFConverter to handle direct HTML content
+    # or just use a temporary file approach.
+    temp_html = os.path.join(UPLOAD_FOLDER, str(uuid.uuid4()) + '.html')
+    with open(temp_html, 'w', encoding='utf-8') as f:
+        f.write(html_content)
+    
+    # Convert using the existing file-based approach (file:/// path)
+    abs_path = os.path.abspath(temp_html)
+    success = sync_convert_url_to_pdf(f"file:///{abs_path}", filepath)
+    
+    # Clean up temp HTML
+    if os.path.exists(temp_html):
+        os.remove(temp_html)
+    
+    if not success:
+        return jsonify({'error': 'Failed to convert HTML to PDF'}), 500
+        
+    # Initialize editor
+    editor = AdvancedPDFEditor(filepath)
+    editors[filename] = editor
+    
+    # Extract initial analysis
+    extraction_result = editor.extract_text()
+    editor.close() 
+    
+    return jsonify({
+        'sessionId': filename,
+        'pages': extraction_result['pages'],
+        'fonts': extraction_result.get('fonts', {})
+    })
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000)
