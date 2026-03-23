@@ -1,0 +1,6 @@
+flask
+flask-cors
+pymupdf
+pdf2docx
+playwright
+gunicorn
