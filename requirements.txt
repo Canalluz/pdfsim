@@ -4,3 +4,4 @@ pymupdf
 pdf2docx
 playwright
 gunicorn
+python-dotenv
