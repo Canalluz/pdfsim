@@ -1,13 +1,28 @@
-
 const getApiUrl = () => {
-    let url = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+    // 1. Check if VITE_API_URL is explicitly set
+    let url = import.meta.env.VITE_API_URL;
+    
+    // 2. If not set and we are on a production domain, try to infer it
+    if (!url) {
+        const hostname = window.location.hostname;
+        if (hostname === 'pdfsim.com') {
+            // PROD DEFAULT: If on pdfsim.com, try api.pdfsim.com via HTTPS
+            url = 'https://api.pdfsim.com';
+        } else if (hostname === 'localhost' || hostname === '127.0.0.1') {
+            url = 'http://localhost:5000';
+        } else {
+            // Fallback
+            url = 'http://localhost:5000';
+        }
+    }
+
     if (url.endsWith('/')) {
         url = url.slice(0, -1);
     }
     return url;
 };
 
-const API_BASE_URL = getApiUrl();
+export const API_BASE_URL = getApiUrl();
 
 /**
  * Robust fetch with automatic retries for network failures
@@ -22,12 +37,13 @@ export const fetchWithRetry = async (url: string, options: RequestInit = {}, ret
             return fetchWithRetry(url, options, retries - 1, backoff * 1.5);
         }
         return response;
-    } catch (err) {
+    } catch (err: any) {
         if (retries > 0) {
-            console.warn(`Network error. Retrying in ${backoff}ms...`, err);
+            console.warn(`Network error fetching ${url}. Retrying in ${backoff}ms...`, err);
             await new Promise(resolve => setTimeout(resolve, backoff));
             return fetchWithRetry(url, options, retries - 1, backoff * 1.5);
         }
+        console.error(`CRITICAL: Failed to fetch from ${url}. If this is production (https://pdfsim.com), ensure your API is running on HTTPS and that CORS is configured for this domain.`, err);
         throw err;
     }
 };
